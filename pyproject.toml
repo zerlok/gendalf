@@ -1,0 +1,160 @@
+[tool.poetry]
+name = "gendalf"
+version = "0.1.0"
+description = "You shall pass... your domain to transport! A Python codegen tool for transport layers in DDD, supporting most popular transport / API frameworks."
+authors = ["zerlok <danil.troshnev@gmail.com>"]
+readme = "README.md"
+license = "MIT"
+keywords = [
+    "python",
+    "codegen",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Code Generators",
+    "Typing :: Typed",
+]
+
+[tool.poetry.urls]
+Homepage = "https://github.com/zerlok/gendalf"
+Issues = "https://github.com/zerlok/gendalf/issues"
+
+[tool.poetry.scripts]
+gendalf = "gendalf.cli:cli"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+click = "^8.1.8"
+astlab = "^0.2.0"
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.13.0"
+pytest = "^8.3.3"
+pytest-cov = "^6.0.0"
+ruff = ">=0.7.4,<0.9.0"
+
+[tool.poetry.group.examples.dependencies]
+httpx = "^0.28.1"
+uvicorn = "^0.34.0"
+fastapi = "^0.115.7"
+httpx-ws = "^0.7.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff]
+target-version = "py39"
+include = ["src/**/*.py", "tests/**/*.py"]
+force-exclude = true
+line-length = 120
+output-format = "pylint"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN", # because we use mypy
+    "D", # TODO: add docstrings to public code
+    "FA", # TODO: consider should we use __annotations__
+    "TD", # no task tracking
+    "FIX", # TODO: consider enable it against new code on pull requests
+    "COM812", # because ruff format suggests to skip it
+    "ISC001", # because ruff format suggests to skip it
+    "RET505", # clashes with mypy exhaustiveness check
+    "S101", # allow asserts for tests checks and mypy help
+    # TODO: stop ignore this rule
+    "UP007", # because of 3.9 support
+    # TODO: stop ignore this rule
+    "SIM117", # because ast builder 2.0 uses with statement to build contextual scope statemetns
+    "ARG002", # because `ruff` can't handle `override` from internal `gendalf._typing`.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# CLI is built with `click` framework
+"src/gendalf/cli.py" = [
+    "FBT001", # CLI commands can use non keyword flag options
+    "PLR0913", # CLI commands can use a lots of arguments and options
+]
+"tests/**" = [
+    "PLR0913", # test functions can use a lots of arguments and fixtures
+]
+
+
+[tool.mypy]
+files = ["src", "tests"]
+strict = true
+disallow_any_unimported = true
+disallow_any_expr = true
+disallow_any_decorated = true
+disallow_any_explicit = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_return_any = true
+warn_unreachable = true
+strict_equality = true
+strict_optional = true
+enable_error_code = [
+    "redundant-self",
+    "redundant-expr",
+    "possibly-undefined",
+    "truthy-bool",
+    "truthy-iterable",
+    "ignore-without-code",
+    "unused-awaitable",
+    "explicit-override",
+    "mutable-override",
+    "unimported-reveal",
+    "narrowed-type-not-subtype",
+]
+
+# NOTE: in some modules it's hard to disallow `typing.Any` completely, so allow it (e.g. `click` has `typing.Any` in
+# some decorators).
+[[tool.mypy.overrides]]
+module = [
+    "gendalf.cli",
+    "gendalf.entrypoint.inspection",
+    "gendalf.generator.model.type_inspection.visitor.trait",
+]
+disallow_any_expr = false
+
+# NOTE: allow return `typing.Any` in test fixtures (e.g. mock objects created with `create_autospec`)
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_any_expr = false
+disallow_any_explicit = false
+warn_return_any = false
+
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src",
+]
+addopts = [
+    "--cov=src",
+    "--cov-report=term-missing",
+]
+testpaths = [
+    "tests",
+]
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "@abc.abstractmethod",
+    "if __name__ == .__main__.:",
+    "if t.TYPE_CHECKING:",
+]
+show_missing = true
