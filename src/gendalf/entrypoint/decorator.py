@@ -1,10 +1,19 @@
+from __future__ import annotations
+
 import typing as t
+from dataclasses import dataclass
 from functools import partial
 
-from gendalf.model import EntrypointOptions
-
 T = t.TypeVar("T")
-__ENTRYPOINT_CONFIG = """__gendalf_entrypoint_config__"""
+
+
+@dataclass(frozen=True)
+class EntrypointConfig:
+    name: t.Optional[str] = None
+    version: t.Optional[str] = None
+
+
+__ENTRYPOINT_CONFIG_ATTR: t.Final[str] = """__gendalf_entrypoint_config__"""
 
 
 @t.overload
@@ -20,19 +29,19 @@ def entrypoint(
     name: t.Optional[str] = None,
 ) -> t.Union[type[T], t.Callable[[type[T]], type[T]]]:
     return (
-        _mark_entrypoint(obj, EntrypointOptions())
+        _mark_entrypoint(obj, EntrypointConfig())
         if obj is not None
         # NOTE: mypy thinks that `T` of `_mark_entrypoint` is not the same `T` of `entrypoint`
-        else t.cast(t.Callable[[type[T]], type[T]], partial(_mark_entrypoint, options=EntrypointOptions(name=name)))
+        else t.cast(t.Callable[[type[T]], type[T]], partial(_mark_entrypoint, options=EntrypointConfig(name=name)))
     )
 
 
-def _mark_entrypoint(obj: type[T], options: EntrypointOptions) -> type[T]:
-    setattr(obj, __ENTRYPOINT_CONFIG, options)
+def _mark_entrypoint(obj: type[T], options: EntrypointConfig) -> type[T]:
+    setattr(obj, __ENTRYPOINT_CONFIG_ATTR, options)
     return obj
 
 
-def get_entrypoint_options(obj: object) -> t.Optional[EntrypointOptions]:
-    opts: object = getattr(obj, __ENTRYPOINT_CONFIG, None)
-    assert opts is None or isinstance(opts, EntrypointOptions)
+def get_entrypoint_options(obj: object) -> t.Optional[EntrypointConfig]:
+    opts: object = getattr(obj, __ENTRYPOINT_CONFIG_ATTR, None)
+    assert opts is None or isinstance(opts, EntrypointConfig)
     return opts

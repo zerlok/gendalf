@@ -72,27 +72,35 @@ class Func(t.Protocol):
 def inspect_method(name: str, func: Func) -> MethodInfo:
     signature = inspect.signature(func)
 
+    # skip `self`
     params = list(signature.parameters.values())[1:]
 
-    # TODO: uncomment
     if len(params) == 1 and (streaming_type := extract_streaming_type(params[0].annotation)) is not None:
+        input_stream_param = params[0]
         return StreamStreamMethodInfo(
             name=name,
-            input_=_build_param(params[0].replace(annotation=streaming_type)),
-            output=extract_streaming_type(signature.return_annotation),
+            input_=ParameterInfo(
+                name=input_stream_param.name,
+                type_=streaming_type,
+                default=Option(input_stream_param.default)
+                if input_stream_param.default is not input_stream_param.empty
+                else Option[object].empty(),
+            ),
+            output=extract_streaming_type(signature.return_annotation)
+            if signature.return_annotation is not None
+            else None,
             doc=inspect.getdoc(func),
         )
 
     return UnaryUnaryMethodInfo(
         name=name,
-        # skip `self`
         params=[_build_param(param) for param in params],
-        returns=signature.return_annotation,
+        returns=TypeInfo.from_type(signature.return_annotation) if signature.return_annotation is not None else None,
         doc=inspect.getdoc(func),
     )
 
 
-def extract_streaming_type(obj: object) -> t.Optional[type[object]]:
+def extract_streaming_type(obj: object) -> t.Optional[TypeInfo]:
     origin = t.get_origin(obj)
     if not isinstance(origin, type) or not issubclass(origin, (t.Iterator, t.AsyncIterator)):
         return None
@@ -100,13 +108,12 @@ def extract_streaming_type(obj: object) -> t.Optional[type[object]]:
     args = t.get_args(obj)
     assert len(args) == 1
 
-    # TODO: remove cast, check types
-    return t.cast(type[object], args[0])
+    return TypeInfo.from_type(args[0])
 
 
 def _build_param(param: inspect.Parameter) -> ParameterInfo:
     return ParameterInfo(
         name=param.name,
-        annotation=param.annotation,
+        type_=TypeInfo.from_type(param.annotation),
         default=Option(param.default) if param.default is not param.empty else Option[object].empty(),
     )

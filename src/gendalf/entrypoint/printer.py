@@ -1,6 +1,8 @@
-import inspect
+import io
 import typing as t
 from dataclasses import replace
+
+from astlab.info import ModuleInfo, TypeInfo
 
 from gendalf._typing import override
 from gendalf.model import (
@@ -22,9 +24,7 @@ class Printer(Visitor):
         type_ = info.type_
         assert type_.module is not None
 
-        self.__writer(
-            f"* {info.name} ({type_.module.qualname}:{'.'.join(type_.ns)})" f"{' ' if info.doc else ''}{info.doc or ''}"
-        )
+        self.__writer(f"* {info.name} ({type_.qualname}){' ' if info.doc else ''}{info.doc or ''}")
 
         for method in info.methods:
             method.accept(self)
@@ -42,7 +42,7 @@ class Printer(Visitor):
             params=[
                 replace(
                     info.input_,
-                    annotation=self.__to_iterator(info.input_.annotation),
+                    type_=self.__to_iterator(info.input_.type_),
                 ),
             ],
             returns=self.__to_iterator(info.output) if info.output is not None else None,
@@ -56,22 +56,27 @@ class Printer(Visitor):
         self,
         info: MethodInfo,
         params: t.Sequence[ParameterInfo],
-        returns: t.Optional[type[object]],
+        returns: t.Optional[TypeInfo],
     ) -> None:
-        signature = inspect.Signature(
-            parameters=[
-                inspect.Parameter(
-                    name=param.name,
-                    # TODO: remove type ignores
-                    kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,  # type: ignore[misc]
-                    default=param.default.value(inspect.Parameter.empty),  # type: ignore[misc]
-                    annotation=param.annotation,
-                )
-                for param in params
-            ],
-            return_annotation=returns,
-        )
-        self.__writer(f"   * {info.name}{signature}: {info.doc or ''}")
+        with io.StringIO() as ss:
+            ss.write(f"   * {info.name}(")
 
-    def __to_iterator(self, type_: type[object]) -> type[object]:
-        return t.Iterator[type_]  # type: ignore[valid-type]
+            for i, param in enumerate(params):
+                if i > 0:
+                    ss.write(", ")
+
+                ss.write(f"{param.name}: {param.type_.annotation()}")
+                if param.default.is_set:
+                    ss.write(f" = {param.default.value()}")
+
+            ss.write(")")
+            if returns is not None:
+                ss.write(f" -> {returns.annotation()}")
+
+            if info.doc:
+                ss.write(f": {info.doc}")
+
+            self.__writer(ss.getvalue())
+
+    def __to_iterator(self, type_: TypeInfo) -> TypeInfo:
+        return TypeInfo(name="Iterator", module=ModuleInfo(None, "typing"), type_params=(type_,))

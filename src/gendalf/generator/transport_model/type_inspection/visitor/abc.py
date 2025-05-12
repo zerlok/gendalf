@@ -1,7 +1,7 @@
 import abc
 import typing as t
 
-from gendalf.generator.model.type_inspection.visitor.model import (
+from gendalf.generator.transport_model.type_inspection.visitor.model import (
     ContainerContext,
     Context,
     EnumContext,

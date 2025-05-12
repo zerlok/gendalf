@@ -1,13 +1,15 @@
 import typing as t
 from dataclasses import dataclass, field
 
+from astlab.info import TypeInfo
+
 from gendalf._typing import TypeAlias
 from gendalf.option import Option
 
 
 @dataclass(frozen=True)
 class _BaseContext:
-    type_: type[object]
+    type_: TypeInfo
 
 
 @dataclass(frozen=True)

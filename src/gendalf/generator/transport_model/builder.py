@@ -7,9 +7,9 @@ from astlab.builder import AttrASTBuilder, ClassRefBuilder, ModuleASTBuilder, Sc
 from astlab.info import TypeInfo
 
 from gendalf._typing import override
-from gendalf.generator.model.abc import ModelFactory
-from gendalf.generator.model.type_inspection.visitor.abc import TypeVisitorDecorator, TypeWalkerTrait
-from gendalf.generator.model.type_inspection.visitor.model import (
+from gendalf.generator.transport_model.abc import TMFactory
+from gendalf.generator.transport_model.type_inspection.visitor.abc import TypeVisitorDecorator, TypeWalkerTrait
+from gendalf.generator.transport_model.type_inspection.visitor.model import (
     ContainerContext,
     EnumContext,
     EnumValueContext,
@@ -17,32 +17,31 @@ from gendalf.generator.model.type_inspection.visitor.model import (
     StructureContext,
     StructureFieldContext,
 )
-from gendalf.generator.model.type_inspection.visitor.trait import DefaultTypeWalkerTrait
-from gendalf.generator.model.type_inspection.visitor.walker import TypeWalker
+from gendalf.generator.transport_model.type_inspection.visitor.walker import TypeWalker
 
 
-class ModelASTBuilder:
+class TMBuilder:
     def __init__(
         self,
         builder: ModuleASTBuilder,
-        factory: ModelFactory,
+        factory: TMFactory,
         trait: t.Optional[TypeWalkerTrait] = None,
     ) -> None:
         self.__builder = builder
         self.__factory = factory
-        self.__trait = trait or DefaultTypeWalkerTrait()
+        # self.__trait = trait or DefaultTypeWalkerTrait()
 
-        self.__hierarchy = list[type[object]]()
-        self.__registry = dict[type[object], TypeRef]()
-        self.__analyzer = TypeWalker(
-            self.__trait,
-            ModelASTGenerator(self.__builder, self.__factory, self.__hierarchy, self.__registry),
-        )
+        self.__hierarchy = list[TypeInfo]()
+        self.__registry = dict[TypeInfo, TypeRef]()
+        # self.__analyzer = TypeWalker(
+        #     self.__trait,
+        #     TMDefGenerator(self.__builder, self.__factory, self.__hierarchy, self.__registry),
+        # )
 
     def create_def(
         self,
         name: str,
-        fields: t.Mapping[str, type[object]],
+        fields: t.Mapping[str, TypeInfo],
         doc: t.Optional[str] = None,
     ) -> ClassRefBuilder:
         with self.__factory.create_class_def(self.__builder, name).docstring(doc) as class_def:
@@ -51,22 +50,23 @@ class ModelASTBuilder:
 
         return class_def.ref()
 
-    def update(self, types: t.Collection[type[object]]) -> None:
+    def update(self, types: t.Collection[TypeInfo]) -> None:
         todo = set(types) - self.__registry.keys()
 
-        for type_ in todo:
-            context = GenContext(deque([GenContext.Item([])]))
+        for type_info in todo:
+            type_ = type_info.get()
+            # context = GenContext(deque([GenContext.Item([])]))
             self.__analyzer.walk(type_, context)
 
             self.__registry[type_] = context.last.types[0]
 
-    def resolve(self, type_: type[object]) -> TypeRef:
+    def resolve(self, type_: TypeInfo) -> TypeRef:
         return self.__registry[type_]
 
     def assign_expr(
         self,
         source: Expr,
-        type_: type[object],
+        type_: TypeInfo,
         mode: t.Literal["original", "model"],
         builder: ScopeASTBuilder,
     ) -> Expr:
@@ -74,7 +74,7 @@ class ModelASTBuilder:
 
         resolve = TypeInfo.from_type if mode == "original" else self.resolve
 
-        walker = TypeWalker(self.__trait, AssignExprGenerator(builder, resolve))
+        walker = TypeWalker(self.__trait, TMAssignExprGenerator(builder, resolve))
         walker.walk(type_, context)
 
         return context.last.exprs[0]
@@ -102,13 +102,13 @@ class GenContext:
         return self.stack.pop()
 
 
-class ModelASTGenerator(TypeVisitorDecorator[GenContext]):
+class TMDefGenerator(TypeVisitorDecorator[GenContext]):
     def __init__(
         self,
         builder: ModuleASTBuilder,
-        factory: ModelFactory,
-        hierarchy: t.MutableSequence[type[object]],
-        registry: t.MutableMapping[type[object], TypeRef],
+        factory: TMFactory,
+        hierarchy: t.MutableSequence[TypeInfo],
+        registry: t.MutableMapping[TypeInfo, TypeRef],
     ) -> None:
         self.__builder = builder
         self.__factory = factory
@@ -178,7 +178,7 @@ class ModelASTGenerator(TypeVisitorDecorator[GenContext]):
     def leave_structure_field(self, context: StructureFieldContext, meta: GenContext) -> None:
         pass
 
-    def __add_model(self, meta: GenContext, type_: type[object], ref: TypeRef) -> None:
+    def __add_model(self, meta: GenContext, type_: TypeInfo, ref: TypeRef) -> None:
         if type_ not in self.__registry:
             self.__registry[type_] = ref
             self.__hierarchy.append(type_)
@@ -209,8 +209,8 @@ class AssignExprContext:
         return self.stack.pop()
 
 
-class AssignExprGenerator(TypeVisitorDecorator[AssignExprContext]):
-    def __init__(self, builder: ScopeASTBuilder, resolver: t.Callable[[type[object]], TypeRef]) -> None:
+class TMAssignExprGenerator(TypeVisitorDecorator[AssignExprContext]):
+    def __init__(self, builder: ScopeASTBuilder, resolver: t.Callable[[TypeInfo], TypeRef]) -> None:
         self.__builder = builder
         self.__resolver = resolver
 

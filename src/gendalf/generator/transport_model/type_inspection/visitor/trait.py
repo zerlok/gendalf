@@ -7,8 +7,8 @@ from dataclasses import fields as get_dataclass_fields
 from datetime import date, datetime, time, timedelta
 
 from gendalf._typing import override
-from gendalf.generator.model.type_inspection.visitor.abc import TypeWalkerTrait
-from gendalf.generator.model.type_inspection.visitor.model import (
+from gendalf.generator.transport_model.type_inspection.visitor.abc import TypeWalkerTrait
+from gendalf.generator.transport_model.type_inspection.visitor.model import (
     ContainerContext,
     Context,
     EnumContext,

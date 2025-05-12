@@ -1,5 +1,6 @@
 import typing as t
 
+from astlab import package
 from astlab.abc import Expr, TypeRef
 from astlab.builder import (
     AttrASTBuilder,
@@ -9,19 +10,16 @@ from astlab.builder import (
     ModuleASTBuilder,
     PackageASTBuilder,
     ScopeASTBuilder,
-    package,
 )
 from astlab.info import ModuleInfo, TypeInfo
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.abc import CodeGenerator
-from gendalf.generator.model.builder import ModelASTBuilder
-from gendalf.generator.model.factory import PydanticModelFactory
+from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
+from gendalf.generator.transport_model.builder import TMBuilder
+from gendalf.generator.transport_model.factory import PydanticTMFactory
 from gendalf.model import (
     EntrypointInfo,
-    GeneratedFile,
-    GeneratorContext,
-    GeneratorResult,
     MethodInfo,
     ParameterInfo,
     StreamStreamMethodInfo,
@@ -31,8 +29,8 @@ from gendalf.string_case import camel2snake, snake2camel
 
 
 class FastAPITypeRegistry:
-    def __init__(self, context: GeneratorContext, builder: ModuleASTBuilder) -> None:
-        self.__builder = ModelASTBuilder(builder, PydanticModelFactory())
+    def __init__(self, context: CodeGeneratorContext, builder: ModuleASTBuilder) -> None:
+        self.__builder = TMBuilder(builder, PydanticTMFactory())
         self.__builder.update(set(self.__iter_types(context)))
 
         self.__requests = dict[tuple[str, str], ClassRefBuilder]()
@@ -50,12 +48,12 @@ class FastAPITypeRegistry:
         param: ParameterInfo,
         builder: FuncBodyASTBuilder,
     ) -> Expr:
-        return self.__builder.assign_expr(source.attr(param.name), param.annotation, "original", builder)
+        return self.__builder.assign_expr(source.attr(param.name), param.type_, "original", builder)
 
     def response_payload_pack_expr(
         self,
         source: AttrASTBuilder,
-        annotation: type[object],
+        annotation: TypeInfo,
         builder: FuncBodyASTBuilder,
     ) -> Expr:
         return self.__builder.assign_expr(source, annotation, "model", builder)
@@ -64,7 +62,7 @@ class FastAPITypeRegistry:
         self,
         entrypoint: EntrypointInfo,
         method: MethodInfo,
-        fields: t.Mapping[str, type[object]],
+        fields: t.Mapping[str, TypeInfo],
         doc: t.Optional[str],
     ) -> None:
         model_ref = self.__builder.create_def(self.__create_model_name(entrypoint, method, "Request"), fields, doc)
@@ -74,7 +72,7 @@ class FastAPITypeRegistry:
         self,
         entrypoint: EntrypointInfo,
         method: MethodInfo,
-        fields: t.Mapping[str, type[object]],
+        fields: t.Mapping[str, TypeInfo],
         doc: t.Optional[str],
     ) -> None:
         model_ref = self.__builder.create_def(self.__create_model_name(entrypoint, method, "Response"), fields, doc)
@@ -89,18 +87,18 @@ class FastAPITypeRegistry:
         return "".join(snake2camel(s) for s in (entrypoint.name, method.name, suffix))
 
     @staticmethod
-    def __iter_types(context: GeneratorContext) -> t.Iterable[type[object]]:
+    def __iter_types(context: CodeGeneratorContext) -> t.Iterable[TypeInfo]:
         for entrypoint in context.entrypoints:
             for method in entrypoint.methods:
                 if isinstance(method, UnaryUnaryMethodInfo):
                     for param in method.params:
-                        yield param.annotation
+                        yield param.type_
 
                     if method.returns is not None:
                         yield method.returns
 
                 elif isinstance(method, StreamStreamMethodInfo):
-                    yield method.input_.annotation
+                    yield method.input_.type_
                     if method.output is not None:
                         yield method.output
 
@@ -110,7 +108,7 @@ class FastAPITypeRegistry:
 
 class FastAPICodeGenerator(CodeGenerator):
     @override
-    def generate(self, context: GeneratorContext) -> GeneratorResult:
+    def generate(self, context: CodeGeneratorContext) -> CodeGeneratorResult:
         with package(context.package or "api") as pkg:
             with pkg.init():
                 pass
@@ -119,9 +117,9 @@ class FastAPICodeGenerator(CodeGenerator):
             self.__build_server_module(context, pkg, registry)
             self.__build_client_module(context, pkg, registry)
 
-        return GeneratorResult(
+        return CodeGeneratorResult(
             files=[
-                GeneratedFile(
+                CodeGeneratorResult.File(
                     path=context.output.joinpath(module.file),
                     content=content,
                 )
@@ -131,7 +129,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_model_module(
         self,
-        context: GeneratorContext,
+        context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
     ) -> FastAPITypeRegistry:
         with pkg.module("model") as mod:
@@ -143,7 +141,7 @@ class FastAPICodeGenerator(CodeGenerator):
                         registry.register_request(
                             entrypoint=entrypoint,
                             method=method,
-                            fields={param.name: param.annotation for param in method.params},
+                            fields={param.name: param.type_ for param in method.params},
                             doc=f"Request model for `{entrypoint.name}.{method.name}` entrypoint method",
                         )
 
@@ -159,7 +157,7 @@ class FastAPICodeGenerator(CodeGenerator):
                         registry.register_request(
                             entrypoint=entrypoint,
                             method=method,
-                            fields={method.input_.name: method.input_.annotation},
+                            fields={method.input_.name: method.input_.type_},
                             doc=f"Request model for `{entrypoint.name}.{method.name}` entrypoint method",
                         )
 
@@ -178,7 +176,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_server_module(
         self,
-        context: GeneratorContext,
+        context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
         registry: FastAPITypeRegistry,
     ) -> None:
@@ -292,13 +290,13 @@ class FastAPICodeGenerator(CodeGenerator):
 
         with (
             builder.method_def(method.name)
-            .arg("websocket", TypeInfo.build(ModuleInfo(None, "fastapi"), "WebSocket"))
+            .arg("websocket", TypeInfo("WebSocket", ModuleInfo(None, "fastapi")))
             .returns(builder.none())
             .async_() as method_def
         ):
             with (
                 method_def.func_def("receive_inputs")
-                .returns(builder.iterator_type(method.input_.annotation, is_async=True))
+                .returns(builder.iterator_type(method.input_.type_, is_async=True))
                 .async_()
             ):
                 with builder.for_stmt("request_text", builder.attr("websocket", "iter_text").call()).async_():
@@ -334,7 +332,7 @@ class FastAPICodeGenerator(CodeGenerator):
                             .await_()
                         )
 
-                with try_stmt.except_(TypeInfo.build(ModuleInfo(None, "fastapi"), "WebSocketDisconnect")):
+                with try_stmt.except_(TypeInfo("WebSocketDisconnect", ModuleInfo(None, "fastapi"))):
                     pass
 
     def __build_server_entrypoint_router(
@@ -343,7 +341,7 @@ class FastAPICodeGenerator(CodeGenerator):
         entrypoint: EntrypointInfo,
         handler_def: TypeRef,
     ) -> None:
-        fastapi_router_ref = TypeInfo.build(ModuleInfo(None, "fastapi"), "APIRouter")
+        fastapi_router_ref = TypeInfo("APIRouter", ModuleInfo(None, "fastapi"))
 
         with (
             builder.func_def(f"create_{camel2snake(entrypoint.name)}_router")
@@ -364,11 +362,11 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_client_module(
         self,
-        context: GeneratorContext,
+        context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
         registry: FastAPITypeRegistry,
     ) -> None:
-        client_impl_ref = TypeInfo.build(ModuleInfo(None, "httpx"), "AsyncClient")
+        client_impl_ref = TypeInfo("AsyncClient", ModuleInfo(None, "httpx"))
 
         with pkg.module("client") as client:
             for entrypoint in context.entrypoints:
@@ -428,13 +426,13 @@ class FastAPICodeGenerator(CodeGenerator):
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
     ) -> None:
-        ws_connect_ref = TypeInfo.build(ModuleInfo(None, "httpx_ws"), "aconnect_ws")
-        ws_session_ref = TypeInfo.build(ModuleInfo(None, "httpx_ws"), "AsyncWebSocketSession")
+        ws_connect_ref = TypeInfo("aconnect_ws", ModuleInfo(None, "httpx_ws"))
+        ws_session_ref = TypeInfo("AsyncWebSocketSession", ModuleInfo(None, "httpx_ws"))
         ws_error_refs = [
-            TypeInfo.build(ModuleInfo(None, "httpx_ws"), "WebSocketNetworkError"),
-            TypeInfo.build(ModuleInfo(None, "httpx_ws"), "WebSocketDisconnect"),
+            TypeInfo("WebSocketNetworkError", ModuleInfo(None, "httpx_ws")),
+            TypeInfo("WebSocketDisconnect", ModuleInfo(None, "httpx_ws")),
         ]
-        task_group_ref = TypeInfo.build(ModuleInfo(None, "asyncio"), "TaskGroup")
+        task_group_ref = TypeInfo("TaskGroup", ModuleInfo(None, "asyncio"))
 
         request_ref = registry.get_request(entrypoint, method)
         response_ref = registry.get_response(entrypoint, method)

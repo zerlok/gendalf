@@ -1,8 +1,14 @@
 import typing as t
 
+from astlab.info import TypeInfo
+
 from gendalf._typing import assert_never, override
-from gendalf.generator.model.type_inspection.visitor.abc import TypeVisitor, TypeVisitorDecorator, TypeWalkerTrait
-from gendalf.generator.model.type_inspection.visitor.model import (
+from gendalf.generator.transport_model.type_inspection.visitor.abc import (
+    TypeVisitor,
+    TypeVisitorDecorator,
+    TypeWalkerTrait,
+)
+from gendalf.generator.transport_model.type_inspection.visitor.model import (
     ContainerContext,
     EnumContext,
     EnumValueContext,
@@ -82,7 +88,7 @@ class TypeWalker(TypeVisitor[T_contra]):
         for nested in reversed(self.__nested):
             nested.leave_structure_field(context, meta)
 
-    def walk(self, type_: t.Optional[type[object]], meta: T_contra) -> None:
+    def walk(self, type_: t.Optional[TypeInfo], meta: T_contra) -> None:
         ctx = self.__trait.extract(type_)
 
         if isinstance(ctx, ScalarContext):

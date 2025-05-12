@@ -8,7 +8,7 @@ from gendalf._typing import assert_never
 from gendalf.entrypoint.inspection import inspect_source_dir
 from gendalf.entrypoint.printer import Printer
 from gendalf.generator.fastapi import FastAPICodeGenerator
-from gendalf.model import GeneratorContext
+from gendalf.generator.model import CodeGeneratorContext
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ def cast(
 ) -> None:
     """Generate code for specified python package."""
 
-    gen_context = GeneratorContext(
+    gen_context = CodeGeneratorContext(
         entrypoints=list(
             inspect_source_dir(context.source, ignore_module_on_import_error=context.ignore_module_on_import_error)
         ),
