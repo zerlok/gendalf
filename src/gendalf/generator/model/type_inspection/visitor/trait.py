@@ -56,7 +56,7 @@ class DefaultTypeWalkerTrait(TypeWalkerTrait):
     def extract_enum(self, obj: object) -> t.Optional[EnumContext]:
         if t.get_origin(obj) is t.Literal:
             return EnumContext(
-                type_=t.cast(type[object], obj),
+                type_=t.cast("type[object]", obj),
                 name=None,
                 values=tuple(
                     EnumValueContext(
@@ -95,7 +95,7 @@ class DefaultTypeWalkerTrait(TypeWalkerTrait):
                 inners = inners[:1]
 
             return ContainerContext(
-                type_=t.cast(type[object], obj),
+                type_=t.cast("type[object]", obj),
                 origin=origin,
                 inners=inners,
             )

@@ -23,7 +23,7 @@ class Printer(Visitor):
         assert type_.module is not None
 
         self.__writer(
-            f"* {info.name} ({type_.module.qualname}:{'.'.join(type_.ns)})" f"{' ' if info.doc else ''}{info.doc or ''}"
+            f"* {info.name} ({type_.module.qualname}:{'.'.join(type_.ns)}){' ' if info.doc else ''}{info.doc or ''}"
         )
 
         for method in info.methods:

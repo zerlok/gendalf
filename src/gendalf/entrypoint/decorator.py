@@ -23,7 +23,7 @@ def entrypoint(
         _mark_entrypoint(obj, EntrypointOptions())
         if obj is not None
         # NOTE: mypy thinks that `T` of `_mark_entrypoint` is not the same `T` of `entrypoint`
-        else t.cast(t.Callable[[type[T]], type[T]], partial(_mark_entrypoint, options=EntrypointOptions(name=name)))
+        else t.cast("t.Callable[[type[T]], type[T]]", partial(_mark_entrypoint, options=EntrypointOptions(name=name)))
     )
 
 

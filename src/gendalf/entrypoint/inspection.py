@@ -101,7 +101,7 @@ def extract_streaming_type(obj: object) -> t.Optional[type[object]]:
     assert len(args) == 1
 
     # TODO: remove cast, check types
-    return t.cast(type[object], args[0])
+    return t.cast("type[object]", args[0])
 
 
 def _build_param(param: inspect.Parameter) -> ParameterInfo:
