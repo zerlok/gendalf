@@ -1,3 +1,4 @@
+import io
 import typing as t
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,13 +111,16 @@ def cast(
 def show(context: CLIContext) -> None:
     """Show info about the package"""
 
-    printer = Printer(click.echo)
+    with io.StringIO() as ss:
+        printer = Printer(ss)
 
-    for entrypoint in inspect_source_dir(
-        context.source,
-        ignore_module_on_import_error=context.ignore_module_on_import_error,
-    ):
-        entrypoint.accept(printer)
+        for entrypoint in inspect_source_dir(
+            context.source,
+            ignore_module_on_import_error=context.ignore_module_on_import_error,
+        ):
+            entrypoint.accept(printer)
+
+        click.echo(ss.getvalue())
 
 
 if __name__ == "__main__":

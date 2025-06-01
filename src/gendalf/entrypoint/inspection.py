@@ -9,7 +9,7 @@ from types import ModuleType
 from astlab.info import TypeInfo
 from astlab.reader import import_module, walk_package_modules
 
-from gendalf.entrypoint.decorator import get_entrypoint_options
+from gendalf.entrypoint.decorator import get_entrypoint_config
 from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
 from gendalf.option import Option
 
@@ -45,7 +45,7 @@ def inspect_module(module: ModuleType) -> t.Iterable[EntrypointInfo]:
         if not inspect.isclass(obj) or obj.__module__ != module.__name__:
             continue
 
-        opts = get_entrypoint_options(obj)
+        opts = get_entrypoint_config(obj)
         if opts is None:
             continue
 

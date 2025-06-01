@@ -16,20 +16,21 @@ from gendalf.model import (
 
 
 class Printer(Visitor):
-    def __init__(self, writer: t.Callable[[str], None]) -> None:
-        self.__writer = writer
+    def __init__(self, dest: t.IO[str]) -> None:
+        self.__dest = dest
 
     @override
     def visit_entrypoint(self, info: EntrypointInfo) -> None:
         type_ = info.type_
         assert type_.module is not None
 
-        self.__writer(f"* {info.name} ({type_.qualname}){' ' if info.doc else ''}{info.doc or ''}")
+        self.__write_line(f"* {info.name} ({type_.qualname})")
+        self.__write_doc(info.doc, 0)
 
         for method in info.methods:
             method.accept(self)
 
-        self.__writer("")
+        self.__write_new_line()
 
     @override
     def visit_method_unary_unary(self, info: UnaryUnaryMethodInfo) -> None:
@@ -52,6 +53,17 @@ class Printer(Visitor):
     def visit_parameter(self, info: ParameterInfo) -> None:
         pass
 
+    def __write_line(self, line: str, indent: int = 0) -> None:
+        self.__write_indent(indent)
+        self.__dest.write(line)
+        self.__write_new_line()
+
+    def __write_indent(self, indent: int):
+        self.__dest.write(" " * 4 * indent)
+
+    def __write_new_line(self) -> None:
+        self.__dest.write("\n")
+
     def __write_method(
         self,
         info: MethodInfo,
@@ -59,7 +71,7 @@ class Printer(Visitor):
         returns: t.Optional[TypeInfo],
     ) -> None:
         with io.StringIO() as ss:
-            ss.write(f"   * {info.name}(")
+            ss.write(f"* {info.name}(")
 
             for i, param in enumerate(params):
                 if i > 0:
@@ -73,10 +85,18 @@ class Printer(Visitor):
             if returns is not None:
                 ss.write(f" -> {returns.annotation()}")
 
-            if info.doc:
-                ss.write(f": {info.doc}")
+            self.__write_line(ss.getvalue(), 1)
 
-            self.__writer(ss.getvalue())
+        self.__write_doc(info.doc, 1)
+
+    def __write_doc(self, doc: t.Optional[str], indent: int) -> None:
+        if not doc:
+            return
+
+        offset = " " * 4 * (indent + 1)
+        normalized_doc = doc.replace("\n", f"\n{offset}")
+
+        self.__write_line(f'"""{normalized_doc}"""', indent + 1)
 
     def __to_iterator(self, type_: TypeInfo) -> TypeInfo:
         return TypeInfo(name="Iterator", module=ModuleInfo(None, "typing"), type_params=(type_,))
