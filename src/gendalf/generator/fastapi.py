@@ -1,82 +1,193 @@
 import typing as t
 
 from astlab import package
-from astlab.abc import Expr, TypeRef
+from astlab.abc import Expr, TypeDefinitionBuilder, TypeRef
 from astlab.builder import (
     AttrASTBuilder,
     ClassBodyASTBuilder,
     ClassRefBuilder,
-    FuncBodyASTBuilder,
     ModuleASTBuilder,
     PackageASTBuilder,
     ScopeASTBuilder,
 )
-from astlab.info import ModuleInfo, TypeInfo
+from astlab.types import NamedTypeInfo, TypeInfo, TypeInspector
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.abc import CodeGenerator
+from gendalf.generator.dto.mapper import DtoMapper
+from gendalf.generator.dto.trait import PydanticDtoMapperTrait
 from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
-from gendalf.generator.transport_model.builder import TMBuilder
-from gendalf.generator.transport_model.factory import PydanticTMFactory
-from gendalf.model import (
-    EntrypointInfo,
-    MethodInfo,
-    ParameterInfo,
-    StreamStreamMethodInfo,
-    UnaryUnaryMethodInfo,
-)
+from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
 from gendalf.string_case import camel2snake, snake2camel
 
 
-class FastAPITypeRegistry:
-    def __init__(self, context: CodeGeneratorContext, builder: ModuleASTBuilder) -> None:
-        self.__builder = TMBuilder(builder, PydanticTMFactory())
-        self.__builder.update(set(self.__iter_types(context)))
+class FastAPIModel(TypeDefinitionBuilder):
+    def __init__(
+        self,
+        mapper: DtoMapper,
+        ref: ClassRefBuilder,
+    ) -> None:
+        self.__mapper = mapper
+        self.__ref = ref
 
-        self.__requests = dict[tuple[str, str], ClassRefBuilder]()
-        self.__responses = dict[tuple[str, str], ClassRefBuilder]()
+    @override
+    @property
+    def info(self) -> TypeInfo:
+        return self.__ref.info
 
-    def get_request(self, entrypoint: EntrypointInfo, method: MethodInfo) -> ClassRefBuilder:
+    @override
+    def ref(self) -> ClassRefBuilder:
+        return self.__ref
+
+    def build_load_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
+        return self.__mapper.build_dto_decode_expr(scope, self.__ref, source)
+
+    def build_model_to_domain_param_stmts(
+        self,
+        scope: ScopeASTBuilder,
+        params: t.Mapping[str, ParameterInfo],
+        source: AttrASTBuilder,
+    ) -> None:
+        for name, info in params.items():
+            scope.assign_stmt(
+                target=name,
+                value=self.__mapper.build_dto_to_domain_expr(scope, self.__ref, info.type_, source.attr(info.name)),
+            )
+
+    def build_model_to_domain_expr(
+        self,
+        scope: ScopeASTBuilder,
+        domain: TypeRef,
+        source: AttrASTBuilder,
+    ) -> Expr:
+        return self.__mapper.build_dto_to_domain_expr(scope, self.__ref, domain, source)
+
+    def build_domain_to_model_expr(
+        self,
+        scope: ScopeASTBuilder,
+        domain: TypeInfo,
+        source: Expr,
+    ) -> Expr:
+        # builder.call(response_model).kwarg(
+        #     "payload",
+        #     response_model.build_domain_to_model_expr(method_def, builder.attr("output"), method.returns),
+        # ),
+        # builder.call(response_model).kwarg(
+        #     "payload",
+        #     registry.response_payload_pack_expr(method_def, builder.attr("output"), method.output),
+        # )
+        return self.__mapper.build_domain_to_dto_expr(scope, domain, self.__ref, source)
+
+    def build_dump_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
+        return self.__mapper.build_dto_encode_expr(scope, self.__ref, source)
+
+
+class FastAPIDtoRegistry:
+    def __init__(self, mapper: DtoMapper) -> None:
+        self.__mapper = mapper
+
+        self.__requests = dict[tuple[str, str], FastAPIModel]()
+        self.__responses = dict[tuple[str, str], FastAPIModel]()
+
+    def register(self, scope: ScopeASTBuilder, entrypoint: EntrypointInfo, method: MethodInfo) -> None:
+        if isinstance(method, UnaryUnaryMethodInfo):
+            self.__register_unary_request(scope, entrypoint, method)
+
+            if method.returns is not None:
+                self.__register_unary_response(scope, entrypoint, method)
+
+        elif isinstance(method, StreamStreamMethodInfo):
+            self.__register_stream_request(scope, entrypoint, method)
+
+            if method.output is not None:
+                self.__register_stream_response(scope, entrypoint, method)
+
+        else:
+            assert_never(method)
+
+    def get_request(self, entrypoint: EntrypointInfo, method: MethodInfo) -> FastAPIModel:
         return self.__requests[(entrypoint.name, method.name)]
 
-    def get_response(self, entrypoint: EntrypointInfo, method: MethodInfo) -> t.Optional[ClassRefBuilder]:
+    def get_response(self, entrypoint: EntrypointInfo, method: MethodInfo) -> t.Optional[FastAPIModel]:
         return self.__responses.get((entrypoint.name, method.name))
 
-    def request_param_unpack_expr(
+    def __register_unary_request(
         self,
-        source: AttrASTBuilder,
-        param: ParameterInfo,
-        builder: FuncBodyASTBuilder,
-    ) -> Expr:
-        return self.__builder.assign_expr(source.attr(param.name), param.type_, "original", builder)
-
-    def response_payload_pack_expr(
-        self,
-        source: AttrASTBuilder,
-        annotation: TypeInfo,
-        builder: FuncBodyASTBuilder,
-    ) -> Expr:
-        return self.__builder.assign_expr(source, annotation, "model", builder)
-
-    def register_request(
-        self,
+        scope: ScopeASTBuilder,
         entrypoint: EntrypointInfo,
-        method: MethodInfo,
-        fields: t.Mapping[str, TypeInfo],
-        doc: t.Optional[str],
+        method: UnaryUnaryMethodInfo,
     ) -> None:
-        model_ref = self.__builder.create_def(self.__create_model_name(entrypoint, method, "Request"), fields, doc)
-        self.__requests[(entrypoint.name, method.name)] = model_ref
+        model_ref = self.__mapper.create_dto_class_def(
+            scope=scope,
+            name=self.__create_model_name(entrypoint, method, "UnaryRequest"),
+            fields={param.name: param.type_ for param in method.params},
+            doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+        )
 
-    def register_response(
+        self.__requests[(entrypoint.name, method.name)] = FastAPIModel(
+            mapper=self.__mapper,
+            ref=model_ref,
+        )
+
+    def __register_unary_response(
         self,
+        scope: ScopeASTBuilder,
         entrypoint: EntrypointInfo,
-        method: MethodInfo,
-        fields: t.Mapping[str, TypeInfo],
-        doc: t.Optional[str],
+        method: UnaryUnaryMethodInfo,
     ) -> None:
-        model_ref = self.__builder.create_def(self.__create_model_name(entrypoint, method, "Response"), fields, doc)
-        self.__responses[(entrypoint.name, method.name)] = model_ref
+        if method.returns is None:
+            return
+
+        model_ref = self.__mapper.create_dto_class_def(
+            scope=scope,
+            name=self.__create_model_name(entrypoint, method, "UnaryResponse"),
+            fields={"payload": method.returns},
+            doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+        )
+
+        self.__responses[(entrypoint.name, method.name)] = FastAPIModel(
+            mapper=self.__mapper,
+            ref=model_ref,
+        )
+
+    def __register_stream_request(
+        self,
+        scope: ScopeASTBuilder,
+        entrypoint: EntrypointInfo,
+        method: StreamStreamMethodInfo,
+    ) -> None:
+        model_ref = self.__mapper.create_dto_class_def(
+            scope=scope,
+            name=self.__create_model_name(entrypoint, method, "StreamRequest"),
+            fields={method.input_.name: method.input_.type_},
+            doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+        )
+
+        self.__requests[(entrypoint.name, method.name)] = FastAPIModel(
+            mapper=self.__mapper,
+            ref=model_ref,
+        )
+
+    def __register_stream_response(
+        self,
+        scope: ScopeASTBuilder,
+        entrypoint: EntrypointInfo,
+        method: StreamStreamMethodInfo,
+    ) -> None:
+        if method.output is None:
+            return
+
+        model_ref = self.__mapper.create_dto_class_def(
+            scope=scope,
+            name=self.__create_model_name(entrypoint, method, "StreamResponse"),
+            fields={"payload": method.output},
+            doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+        )
+
+        self.__responses[(entrypoint.name, method.name)] = FastAPIModel(
+            mapper=self.__mapper,
+            ref=model_ref,
+        )
 
     def __create_model_name(
         self,
@@ -86,30 +197,14 @@ class FastAPITypeRegistry:
     ) -> str:
         return "".join(snake2camel(s) for s in (entrypoint.name, method.name, suffix))
 
-    @staticmethod
-    def __iter_types(context: CodeGeneratorContext) -> t.Iterable[TypeInfo]:
-        for entrypoint in context.entrypoints:
-            for method in entrypoint.methods:
-                if isinstance(method, UnaryUnaryMethodInfo):
-                    for param in method.params:
-                        yield param.type_
-
-                    if method.returns is not None:
-                        yield method.returns
-
-                elif isinstance(method, StreamStreamMethodInfo):
-                    yield method.input_.type_
-                    if method.output is not None:
-                        yield method.output
-
-                else:
-                    assert_never(method)
-
 
 class FastAPICodeGenerator(CodeGenerator):
+    def __init__(self, inspector: TypeInspector) -> None:
+        self.__inspector = inspector
+
     @override
     def generate(self, context: CodeGeneratorContext) -> CodeGeneratorResult:
-        with package(context.package or "api") as pkg:
+        with package(context.package or "api", inspector=self.__inspector) as pkg:
             with pkg.init():
                 pass
 
@@ -131,46 +226,13 @@ class FastAPICodeGenerator(CodeGenerator):
         self,
         context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
-    ) -> FastAPITypeRegistry:
+    ) -> FastAPIDtoRegistry:
         with pkg.module("model") as mod:
-            registry = FastAPITypeRegistry(context, mod)
+            registry = FastAPIDtoRegistry(DtoMapper(PydanticDtoMapperTrait()))
 
             for entrypoint in context.entrypoints:
                 for method in entrypoint.methods:
-                    if isinstance(method, UnaryUnaryMethodInfo):
-                        registry.register_request(
-                            entrypoint=entrypoint,
-                            method=method,
-                            fields={param.name: param.type_ for param in method.params},
-                            doc=f"Request model for `{entrypoint.name}.{method.name}` entrypoint method",
-                        )
-
-                        if method.returns is not None:
-                            registry.register_response(
-                                entrypoint=entrypoint,
-                                method=method,
-                                fields={"payload": method.returns},
-                                doc=f"Response model for `{entrypoint.name}.{method.name}` entrypoint method",
-                            )
-
-                    elif isinstance(method, StreamStreamMethodInfo):
-                        registry.register_request(
-                            entrypoint=entrypoint,
-                            method=method,
-                            fields={method.input_.name: method.input_.type_},
-                            doc=f"Request model for `{entrypoint.name}.{method.name}` entrypoint method",
-                        )
-
-                        if method.output is not None:
-                            registry.register_response(
-                                entrypoint=entrypoint,
-                                method=method,
-                                fields={"payload": method.output},
-                                doc=f"Response model for `{entrypoint.name}.{method.name}` entrypoint method",
-                            )
-
-                    else:
-                        assert_never(method)
+                    registry.register(mod, entrypoint, method)
 
         return registry
 
@@ -178,7 +240,7 @@ class FastAPICodeGenerator(CodeGenerator):
         self,
         context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
-        registry: FastAPITypeRegistry,
+        registry: FastAPIDtoRegistry,
     ) -> None:
         with pkg.module("server") as server:
             for entrypoint in context.entrypoints:
@@ -217,7 +279,7 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_server_handler_method(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPITypeRegistry,
+        registry: FastAPIDtoRegistry,
         entrypoint: EntrypointInfo,
         method: MethodInfo,
     ) -> None:
@@ -233,37 +295,36 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_server_handler_method_unary_unary(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPITypeRegistry,
+        registry: FastAPIDtoRegistry,
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
     ) -> None:
-        request_ref = registry.get_request(entrypoint, method)
-        response_ref = registry.get_response(entrypoint, method)
+        request_model = registry.get_request(entrypoint, method)
+        response_model = registry.get_response(entrypoint, method)
 
         with (
             builder.method_def(method.name)
-            .arg("request", request_ref)
-            .returns(response_ref or builder.none())
+            .arg("request", request_model)
+            .returns(response_model if response_model is not None else builder.none())
             .async_() as method_def
         ):
-            for param in method.params:
-                builder.assign_stmt(
-                    target=f"input_{param.name}",
-                    value=registry.request_param_unpack_expr(builder.attr("request"), param, method_def),
-                )
+            input_params = {f"input_{param.name}": param for param in method.params}
 
-            impl_call = method_def.self_attr("impl", method.name).call(
-                kwargs={param.name: builder.attr(f"input_{param.name}") for param in method.params}
+            request_model.build_model_to_domain_param_stmts(
+                scope=method_def,
+                params=input_params,
+                source=builder.attr("request"),
             )
 
-            if method.returns is not None and response_ref is not None:
+            impl_call = method_def.self_attr("impl", method.name).call(
+                kwargs={param.name: builder.attr(input_name) for input_name, param in input_params.items()}
+            )
+
+            if method.returns is not None and response_model is not None:
                 builder.assign_stmt("output", impl_call)
                 builder.assign_stmt(
                     "response",
-                    builder.call(response_ref).kwarg(
-                        "payload",
-                        registry.response_payload_pack_expr(builder.attr("output"), method.returns, method_def),
-                    ),
+                    response_model.build_domain_to_model_expr(method_def, method.returns, builder.attr("output")),
                 )
                 builder.return_stmt(builder.attr("response"))
 
@@ -273,24 +334,24 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_server_handler_method_stream_stream(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPITypeRegistry,
+        registry: FastAPIDtoRegistry,
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
     ) -> None:
-        request_ref = registry.get_request(entrypoint, method)
-        response_ref = registry.get_response(entrypoint, method)
+        request_model = registry.get_request(entrypoint, method)
+        response_model = registry.get_response(entrypoint, method)
 
         if method.output is None:
             detail = "invalid method"
             raise ValueError(detail, method)
 
-        if response_ref is None:
+        if response_model is None:
             detail = "invalid method"
             raise ValueError(detail, method)
 
         with (
             builder.method_def(method.name)
-            .arg("websocket", TypeInfo("WebSocket", ModuleInfo(None, "fastapi")))
+            .arg("websocket", NamedTypeInfo.build("fastapi", "WebSocket"))
             .returns(builder.none())
             .async_() as method_def
         ):
@@ -302,10 +363,10 @@ class FastAPICodeGenerator(CodeGenerator):
                 with builder.for_stmt("request_text", builder.attr("websocket", "iter_text").call()).async_():
                     builder.assign_stmt(
                         target="request",
-                        value=self.__build_model_load_expr(builder, request_ref, "request_text"),
+                        value=request_model.build_load_expr(builder, builder.attr("request_text")),
                     )
                     builder.yield_stmt(
-                        registry.request_param_unpack_expr(builder.attr("request"), method.input_, method_def)
+                        request_model.build_model_to_domain_expr(method_def, method.input_, builder.attr("request"))
                     )
 
             with builder.try_stmt() as try_stmt:
@@ -320,19 +381,18 @@ class FastAPICodeGenerator(CodeGenerator):
                     ).async_():
                         builder.assign_stmt(
                             target="response",
-                            value=builder.call(response_ref).kwarg(
-                                "payload",
-                                registry.response_payload_pack_expr(builder.attr("output"), method.output, method_def),
+                            value=response_model.build_domain_to_model_expr(
+                                method_def, method.output, builder.attr("output")
                             ),
                         )
                         builder.stmt(
                             builder.attr("websocket", "send_text")
                             .call()
-                            .arg(self.__build_model_dump_expr(builder, "response"))
+                            .arg(response_model.build_dump_expr(builder, builder.attr("response")))
                             .await_()
                         )
 
-                with try_stmt.except_(TypeInfo("WebSocketDisconnect", ModuleInfo(None, "fastapi"))):
+                with try_stmt.except_(NamedTypeInfo.build("fastapi", "WebSocketDisconnect")):
                     pass
 
     def __build_server_entrypoint_router(
@@ -341,7 +401,7 @@ class FastAPICodeGenerator(CodeGenerator):
         entrypoint: EntrypointInfo,
         handler_def: TypeRef,
     ) -> None:
-        fastapi_router_ref = TypeInfo("APIRouter", ModuleInfo(None, "fastapi"))
+        fastapi_router_ref = NamedTypeInfo.build("fastapi", "APIRouter")
 
         with (
             builder.func_def(f"create_{camel2snake(entrypoint.name)}_router")
@@ -364,9 +424,9 @@ class FastAPICodeGenerator(CodeGenerator):
         self,
         context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
-        registry: FastAPITypeRegistry,
+        registry: FastAPIDtoRegistry,
     ) -> None:
-        client_impl_ref = TypeInfo("AsyncClient", ModuleInfo(None, "httpx"))
+        client_impl_ref = NamedTypeInfo.build("httpx", "AsyncClient")
 
         with pkg.module("client") as client:
             for entrypoint in context.entrypoints:
@@ -387,32 +447,32 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_client_method_unary_unary(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPITypeRegistry,
+        registry: FastAPIDtoRegistry,
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
     ) -> None:
-        response_def = registry.get_response(entrypoint, method)
+        request_model = registry.get_request(entrypoint, method)
+        response_model = registry.get_response(entrypoint, method)
+
         with (
             builder.method_def(method.name)
-            .arg("request", registry.get_request(entrypoint, method))
-            .returns(response_def or builder.const(None))
+            .arg("request", request_model)
+            .returns(response_model if response_model is not None else builder.const(None))
             .async_() as method_def
         ):
             request_call_expr = (
                 method_def.self_attr("impl", "post")
                 .call()
                 .kwarg("url", builder.const(f"/{camel2snake(entrypoint.name)}/{method.name}"))
-                .kwarg("json", self.__build_model_dump_expr(builder, "request", intermediate=True))
+                .kwarg("json", request_model.build_dump_expr(builder, builder.attr("request")))
                 .await_()
             )
 
-            if method.returns is not None and response_def is not None:
+            if method.returns is not None and response_model is not None:
                 builder.assign_stmt("raw_response", request_call_expr)
                 builder.assign_stmt(
                     target="response",
-                    value=self.__build_model_load_expr(
-                        builder, response_def, builder.attr("raw_response", "read").call()
-                    ),
+                    value=response_model.build_load_expr(builder, builder.attr("raw_response", "read").call()),
                 )
                 builder.return_stmt(builder.attr("response"))
 
@@ -422,33 +482,33 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_client_method_stream_stream(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPITypeRegistry,
+        registry: FastAPIDtoRegistry,
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
     ) -> None:
-        ws_connect_ref = TypeInfo("aconnect_ws", ModuleInfo(None, "httpx_ws"))
-        ws_session_ref = TypeInfo("AsyncWebSocketSession", ModuleInfo(None, "httpx_ws"))
+        ws_connect_ref = NamedTypeInfo.build("httpx_ws", "aconnect_ws")
+        ws_session_ref = NamedTypeInfo.build("httpx_ws", "AsyncWebSocketSession")
         ws_error_refs = [
-            TypeInfo("WebSocketNetworkError", ModuleInfo(None, "httpx_ws")),
-            TypeInfo("WebSocketDisconnect", ModuleInfo(None, "httpx_ws")),
+            NamedTypeInfo.build("httpx_ws", "WebSocketNetworkError"),
+            NamedTypeInfo.build("httpx_ws", "WebSocketDisconnect"),
         ]
-        task_group_ref = TypeInfo("TaskGroup", ModuleInfo(None, "asyncio"))
+        task_group_ref = NamedTypeInfo.build("asyncio", "TaskGroup")
 
-        request_ref = registry.get_request(entrypoint, method)
-        response_ref = registry.get_response(entrypoint, method)
+        request_model = registry.get_request(entrypoint, method)
+        response_model = registry.get_response(entrypoint, method)
 
         if method.output is None:
             detail = "invalid method"
             raise ValueError(detail, method)
 
-        if response_ref is None:
+        if response_model is None:
             detail = "invalid method"
             raise ValueError(detail, method)
 
         with (
             builder.method_def(method.name)
-            .arg("requests", request_ref.iterator(is_async=True))
-            .returns(response_ref.iterator(is_async=True))
+            .arg("requests", request_model.ref().iterator(is_async=True))
+            .returns(response_model.ref().iterator(is_async=True))
             .async_() as method_def
         ):
             with builder.func_def("send_requests").arg("ws", ws_session_ref).returns(builder.none()).async_():
@@ -458,7 +518,7 @@ class FastAPICodeGenerator(CodeGenerator):
                             builder.stmt(
                                 builder.attr("ws", "send_text")
                                 .call()
-                                .arg(self.__build_model_dump_expr(builder, "request"))
+                                .arg(request_model.build_dump_expr(builder, builder.attr("request")))
                                 .await_()
                             )
 
@@ -500,27 +560,6 @@ class FastAPICodeGenerator(CodeGenerator):
                         with try_stmt.else_():
                             builder.assign_stmt(
                                 target="response",
-                                value=self.__build_model_load_expr(builder, response_ref, "raw_response"),
+                                value=response_model.build_load_expr(builder, builder.attr("raw_response")),
                             )
                             builder.yield_stmt(builder.attr("response"))
-
-    def __build_model_load_expr(self, builder: ScopeASTBuilder, model: TypeRef, source: t.Union[str, Expr]) -> Expr:
-        return (
-            builder.attr(model, "model_validate_json")
-            .call()
-            .arg(builder.attr(source) if isinstance(source, str) else source)
-        )
-
-    def __build_model_dump_expr(
-        self,
-        builder: ScopeASTBuilder,
-        source: str,
-        *,
-        intermediate: bool = False,
-    ) -> Expr:
-        return (
-            builder.attr(source, "model_dump_json" if not intermediate else "model_dump")
-            .call(kwargs={"mode": builder.const("json")} if intermediate else None)
-            .kwarg("by_alias", builder.const(value=True))
-            .kwarg("exclude_none", builder.const(value=True))
-        )

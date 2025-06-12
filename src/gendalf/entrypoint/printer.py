@@ -2,7 +2,7 @@ import io
 import typing as t
 from dataclasses import replace
 
-from astlab.info import ModuleInfo, TypeInfo
+from astlab.types import TypeAnnotator, TypeInfo, predef
 
 from gendalf._typing import override
 from gendalf.model import (
@@ -16,8 +16,9 @@ from gendalf.model import (
 
 
 class Printer(Visitor):
-    def __init__(self, dest: t.IO[str]) -> None:
+    def __init__(self, dest: t.IO[str], annotator: TypeAnnotator) -> None:
         self.__dest = dest
+        self.__annotator = annotator
 
     @override
     def visit_entrypoint(self, info: EntrypointInfo) -> None:
@@ -58,7 +59,7 @@ class Printer(Visitor):
         self.__dest.write(line)
         self.__write_new_line()
 
-    def __write_indent(self, indent: int):
+    def __write_indent(self, indent: int) -> None:
         self.__dest.write(" " * 4 * indent)
 
     def __write_new_line(self) -> None:
@@ -77,13 +78,13 @@ class Printer(Visitor):
                 if i > 0:
                     ss.write(", ")
 
-                ss.write(f"{param.name}: {param.type_.annotation()}")
+                ss.write(f"{param.name}: {self.__annotator.annotate(param.type_)}")
                 if param.default.is_set:
                     ss.write(f" = {param.default.value()}")
 
             ss.write(")")
             if returns is not None:
-                ss.write(f" -> {returns.annotation()}")
+                ss.write(f" -> {self.__annotator.annotate(returns)}")
 
             self.__write_line(ss.getvalue(), 1)
 
@@ -99,4 +100,4 @@ class Printer(Visitor):
         self.__write_line(f'"""{normalized_doc}"""', indent + 1)
 
     def __to_iterator(self, type_: TypeInfo) -> TypeInfo:
-        return TypeInfo(name="Iterator", module=ModuleInfo(None, "typing"), type_params=(type_,))
+        return replace(predef().iterator, type_params=(type_,))

@@ -8,7 +8,7 @@ from gendalf._typing import TypeAlias, override
 from gendalf.option import Option
 
 if t.TYPE_CHECKING:
-    from astlab.info import TypeInfo
+    from astlab.types import TypeInfo
 
 
 class Visitable(metaclass=abc.ABCMeta):

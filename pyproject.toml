@@ -129,7 +129,7 @@ enable_error_code = [
 module = [
     "gendalf.cli",
     "gendalf.entrypoint.inspection",
-    "gendalf.generator.transport_model.type_inspection.visitor.trait",
+    "gendalf.generator.dto.type_inspection.visitor.trait",
 ]
 disallow_any_expr = false
 

@@ -9,8 +9,8 @@ from gendalf.model import EntrypointInfo
 
 @dataclass(frozen=True)
 class CodeGeneratorContext:
-    entrypoints: t.Sequence[EntrypointInfo]
     source: Path
+    entrypoints: t.Sequence[EntrypointInfo]
     output: Path
     package: t.Optional[str]
 
