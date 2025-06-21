@@ -14,8 +14,6 @@ from astlab.types import NamedTypeInfo, TypeInfo, TypeInspector, TypeLoader
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.abc import CodeGenerator
-
-# from gendalf.generator.dto.mapper import DtoMapper
 from gendalf.generator.dto.pydantic import PydanticDtoMapper
 from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
@@ -69,15 +67,10 @@ class FastAPIModel(TypeDefinitionBuilder):
         domain: TypeInfo,
         source: Expr,
     ) -> Expr:
-        # builder.call(response_model).kwarg(
-        #     "payload",
-        #     response_model.build_domain_to_model_expr(method_def, builder.attr("output"), method.returns),
-        # ),
-        # builder.call(response_model).kwarg(
-        #     "payload",
-        #     registry.response_payload_pack_expr(method_def, builder.attr("output"), method.output),
-        # )
-        return self.__mapper.build_domain_to_dto_expr(scope, domain, self.__ref, source)
+        return scope.call(self.__ref).kwarg(
+            "payload",
+            self.__mapper.build_domain_to_dto_expr(scope, domain, self.__ref, source),
+        )
 
     def build_dump_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
         return self.__mapper.build_dto_encode_expr(scope, self.__ref, source)
@@ -120,7 +113,7 @@ class FastAPIDtoRegistry:
     ) -> None:
         model_ref = self.__mapper.create_dto_class_def(
             scope=scope,
-            name=self.__create_model_name(entrypoint, method, "UnaryRequest"),
+            name=self.__create_model_name(entrypoint, method, "Request"),
             fields={param.name: param.type_ for param in method.params},
             doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
         )
@@ -141,7 +134,7 @@ class FastAPIDtoRegistry:
 
         model_ref = self.__mapper.create_dto_class_def(
             scope=scope,
-            name=self.__create_model_name(entrypoint, method, "UnaryResponse"),
+            name=self.__create_model_name(entrypoint, method, "Response"),
             fields={"payload": method.returns},
             doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
         )
@@ -159,7 +152,7 @@ class FastAPIDtoRegistry:
     ) -> None:
         model_ref = self.__mapper.create_dto_class_def(
             scope=scope,
-            name=self.__create_model_name(entrypoint, method, "StreamRequest"),
+            name=self.__create_model_name(entrypoint, method, "Request"),
             fields={method.input_.name: method.input_.type_},
             doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
         )
@@ -180,7 +173,7 @@ class FastAPIDtoRegistry:
 
         model_ref = self.__mapper.create_dto_class_def(
             scope=scope,
-            name=self.__create_model_name(entrypoint, method, "StreamResponse"),
+            name=self.__create_model_name(entrypoint, method, "Response"),
             fields={"payload": method.output},
             doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
         )
@@ -368,7 +361,9 @@ class FastAPICodeGenerator(CodeGenerator):
                         value=request_model.build_load_expr(builder, builder.attr("request_text")),
                     )
                     builder.yield_stmt(
-                        request_model.build_model_to_domain_expr(method_def, method.input_, builder.attr("request"))
+                        request_model.build_model_to_domain_expr(
+                            method_def, method.input_.type_, builder.attr("request")
+                        )
                     )
 
             with builder.try_stmt() as try_stmt:
@@ -545,7 +540,7 @@ class FastAPICodeGenerator(CodeGenerator):
                     .arg(builder.attr("send_requests").call().arg(builder.attr("ws"))),
                 )
 
-                with builder.while_stmt(builder.not_(builder.attr("sender", "done").call())):
+                with builder.while_stmt(builder.not_op(builder.attr("sender", "done").call())):
                     with builder.try_stmt() as try_stmt:
                         with try_stmt.body():
                             builder.assign_stmt(

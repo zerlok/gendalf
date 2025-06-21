@@ -23,16 +23,24 @@ class EntrypointInspector:
         self.__loader = loader
         self.__inspector = inspector
 
-    def inspect_dir(
+    def inspect_source(
         self,
         source: Path,
         *,
         ignore_module_on_import_error: bool = False,
     ) -> t.Iterable[EntrypointInfo]:
-        for path in walk_package_modules(source):
-            if path.stem.startswith("_"):
-                continue
+        return self.inspect_paths(
+            paths=(path for path in walk_package_modules(source) if not path.stem.startswith("_")),
+            ignore_module_on_import_error=ignore_module_on_import_error,
+        )
 
+    def inspect_paths(
+        self,
+        paths: t.Iterable[Path],
+        *,
+        ignore_module_on_import_error: bool = False,
+    ) -> t.Iterable[EntrypointInfo]:
+        for path in paths:
             try:
                 module = self.__loader.load(path)
 

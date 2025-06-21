@@ -47,7 +47,7 @@ class CLIContext:
         return EntrypointInspector(self.module_loader, self.type_inspector)
 
     def inspect_source(self) -> t.Iterable[EntrypointInfo]:
-        return self.entrypoint_inspector.inspect_dir(
+        return self.entrypoint_inspector.inspect_source(
             source=self.source,
             ignore_module_on_import_error=self.ignore_module_on_import_error,
         )
