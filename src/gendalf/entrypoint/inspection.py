@@ -1,6 +1,5 @@
 import abc
 import inspect
-import sys
 import typing as t
 from pathlib import Path
 from types import ModuleType
@@ -30,25 +29,19 @@ class EntrypointInspector:
         *,
         ignore_module_on_import_error: bool = False,
     ) -> t.Iterable[EntrypointInfo]:
-        sys.path.append(str(source))
-        try:
-            for path in walk_package_modules(source):
-                if path.stem.startswith("_"):
-                    continue
+        for path in walk_package_modules(source):
+            if path.stem.startswith("_"):
+                continue
 
-                try:
-                    module = self.__loader.load(path)
+            try:
+                module = self.__loader.load(path)
 
-                except ImportError:
-                    if not ignore_module_on_import_error:
-                        raise
+            except ImportError:
+                if not ignore_module_on_import_error:
+                    raise
 
-                else:
-                    yield from self.inspect_module(module)
-
-        finally:
-            sys.path.remove(str(source))
-            self.__loader.clear_cache()
+            else:
+                yield from self.inspect_module(module)
 
     def inspect_module(self, module: ModuleType) -> t.Iterable[EntrypointInfo]:
         for name, obj in inspect.getmembers(module):

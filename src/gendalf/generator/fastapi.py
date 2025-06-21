@@ -10,12 +10,13 @@ from astlab.builder import (
     PackageASTBuilder,
     ScopeASTBuilder,
 )
-from astlab.types import NamedTypeInfo, TypeInfo, TypeInspector
+from astlab.types import NamedTypeInfo, TypeInfo, TypeInspector, TypeLoader
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.abc import CodeGenerator
-from gendalf.generator.dto.mapper import DtoMapper
-from gendalf.generator.dto.trait import PydanticDtoMapperTrait
+
+# from gendalf.generator.dto.mapper import DtoMapper
+from gendalf.generator.dto.pydantic import PydanticDtoMapper
 from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
 from gendalf.string_case import camel2snake, snake2camel
@@ -24,7 +25,7 @@ from gendalf.string_case import camel2snake, snake2camel
 class FastAPIModel(TypeDefinitionBuilder):
     def __init__(
         self,
-        mapper: DtoMapper,
+        mapper: PydanticDtoMapper,
         ref: ClassRefBuilder,
     ) -> None:
         self.__mapper = mapper
@@ -83,7 +84,7 @@ class FastAPIModel(TypeDefinitionBuilder):
 
 
 class FastAPIDtoRegistry:
-    def __init__(self, mapper: DtoMapper) -> None:
+    def __init__(self, mapper: PydanticDtoMapper) -> None:
         self.__mapper = mapper
 
         self.__requests = dict[tuple[str, str], FastAPIModel]()
@@ -199,8 +200,9 @@ class FastAPIDtoRegistry:
 
 
 class FastAPICodeGenerator(CodeGenerator):
-    def __init__(self, inspector: TypeInspector) -> None:
+    def __init__(self, inspector: TypeInspector, loader: TypeLoader) -> None:
         self.__inspector = inspector
+        self.__loader = loader
 
     @override
     def generate(self, context: CodeGeneratorContext) -> CodeGeneratorResult:
@@ -227,9 +229,9 @@ class FastAPICodeGenerator(CodeGenerator):
         context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
     ) -> FastAPIDtoRegistry:
-        with pkg.module("model") as mod:
-            registry = FastAPIDtoRegistry(DtoMapper(PydanticDtoMapperTrait()))
+        registry = FastAPIDtoRegistry(PydanticDtoMapper(loader=self.__loader))
 
+        with pkg.module("model") as mod:
             for entrypoint in context.entrypoints:
                 for method in entrypoint.methods:
                     registry.register(mod, entrypoint, method)

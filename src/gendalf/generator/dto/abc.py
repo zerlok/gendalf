@@ -2,26 +2,48 @@ import abc
 import typing as t
 
 from astlab.abc import Expr, TypeRef
-from astlab.builder import ClassBodyASTBuilder, ClassHeaderASTBuilder, ScopeASTBuilder
+from astlab.builder import ScopeASTBuilder
+from astlab.types import TypeInfo
 
 
-class DtoMapperTrait(metaclass=abc.ABCMeta):
-    """Interface for :class:`DtoMapper` to customize DTO definition and serialization strategy."""
+class DtoMapper(metaclass=abc.ABCMeta):
+    """
+    Build DTO class definitions, encode, decode and DTO & domain mapping expressions.
+
+    * DTO decoding (deserialize / parse raw data to DTO)
+    * Transport → Domain (aka inbound mapping, build domain object from DTO)
+    * Domain → Transport (aka outbound mapping, build DTO from domain object)
+    * DTO encode (serialize / dump DTO to raw format)
+    """
 
     @abc.abstractmethod
-    def create_dto_class_def(self, scope: ScopeASTBuilder, name: str) -> ClassHeaderASTBuilder:
-        """Create DTO class header definition in the given scope."""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def add_dto_field_def(
+    @t.overload
+    def create_dto_class_def(
         self,
-        scope: ClassBodyASTBuilder,
+        scope: ScopeASTBuilder,
+        info: TypeInfo,
+    ) -> TypeRef: ...
+
+    @abc.abstractmethod
+    @t.overload
+    def create_dto_class_def(
+        self,
+        scope: ScopeASTBuilder,
         name: str,
-        info: TypeRef,
-        default: t.Optional[Expr] = None,
-    ) -> None:
-        """Add field to a given DTO class definition."""
+        fields: t.Mapping[str, TypeInfo],
+        doc: t.Optional[str] = None,
+    ) -> TypeRef: ...
+
+    @abc.abstractmethod
+    def create_dto_class_def(
+        self,
+        scope: ScopeASTBuilder,
+        info: t.Optional[TypeInfo] = None,
+        name: t.Optional[str] = None,
+        fields: t.Optional[t.Mapping[str, TypeInfo]] = None,
+        doc: t.Optional[str] = None,
+    ) -> TypeRef:
+        """Create DTO class in the given scope using provided domain class info or the given name and domain fields."""
         raise NotImplementedError
 
     @abc.abstractmethod

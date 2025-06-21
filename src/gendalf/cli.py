@@ -3,7 +3,7 @@ from functools import cached_property
 from pathlib import Path
 
 import click
-from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector
+from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
 
 from gendalf._typing import assert_never
 from gendalf.entrypoint.inspection import EntrypointInspector
@@ -28,7 +28,11 @@ class CLIContext:
 
     @cached_property
     def module_loader(self) -> ModuleLoader:
-        return ModuleLoader()
+        return self.with_resource(ModuleLoader.with_sys_path(self.source))
+
+    @cached_property
+    def type_loader(self) -> TypeLoader:
+        return TypeLoader(self.module_loader)
 
     @cached_property
     def type_inspector(self) -> TypeInspector:
@@ -36,7 +40,7 @@ class CLIContext:
 
     @cached_property
     def type_annotator(self) -> TypeAnnotator:
-        return TypeAnnotator()
+        return TypeAnnotator(self.module_loader)
 
     @cached_property
     def entrypoint_inspector(self) -> EntrypointInspector:
@@ -125,6 +129,7 @@ def cast(
     if kind == "fastapi":
         gen = FastAPICodeGenerator(
             inspector=context.type_inspector,
+            loader=context.type_loader,
         )
 
     else:
