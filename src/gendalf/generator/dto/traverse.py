@@ -7,19 +7,12 @@ A = t.TypeVar("A")
 B = t.TypeVar("B")
 
 
-def ident(obj: A) -> A:
-    return obj
-
-
-def truthy(_: object) -> bool:
-    return True
-
-
 def traverse_post_order(
+    *,
     nodes: t.Sequence[A],
+    predicate: t.Callable[[A], bool],
+    transform: t.Callable[[A], B],
     ancestors: t.Callable[[B], t.Sequence[A]],
-    transform: t.Callable[[A], B] = ident,
-    predicate: t.Callable[[A], bool] = truthy,
 ) -> t.Iterable[B]:
     stack = deque[tuple[A, B, bool]]([(node, transform(node), False) for node in nodes if predicate(node)])
     visited = set[A]()
@@ -35,7 +28,16 @@ def traverse_post_order(
 
         else:
             stack.append((node, result, True))
+            stack.extend(
+                (ancestor, transform(ancestor), False)
+                for ancestor in reversed(ancestors(result))
+                if ancestor is not node and ancestor not in visited and predicate(ancestor)
+            )
 
-            for ancestor in reversed(ancestors(result)):
-                if ancestor is not node and ancestor not in visited and predicate(ancestor):
-                    stack.append((ancestor, transform(ancestor), False))
+
+def ident(obj: A) -> A:
+    return obj
+
+
+def truthy(_: object) -> bool:
+    return True

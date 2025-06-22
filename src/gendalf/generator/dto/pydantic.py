@@ -7,8 +7,17 @@ from datetime import date, datetime, time, timedelta
 from functools import cached_property
 
 from astlab.abc import Expr, TypeRef
-from astlab.builder import ScopeASTBuilder
-from astlab.types import LiteralTypeInfo, NamedTypeInfo, RuntimeType, TypeInfo, TypeInspector, TypeLoader
+from astlab.builder import ClassRefBuilder, ScopeASTBuilder
+from astlab.types import (
+    LiteralTypeInfo,
+    NamedTypeInfo,
+    RuntimeType,
+    TypeAnnotator,
+    TypeInfo,
+    TypeInspector,
+    TypeLoader,
+    predef,
+)
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.dto.abc import DtoMapper
@@ -25,7 +34,7 @@ class DomainTypeMapping:
 @dataclass(frozen=True)
 class ProcessedDomainTypeInfo:
     domain: TypeInfo
-    dependencies: t.Sequence[RuntimeType]
+    dependencies: t.Sequence[TypeInfo]
     mapping_factory: t.Callable[[ScopeASTBuilder], DomainTypeMapping]
 
 
@@ -36,31 +45,36 @@ class PydanticDtoMapper(DtoMapper):
         mode: t.Literal["python", "json"] = "json",
         loader: t.Optional[TypeLoader] = None,
         inspector: t.Optional[TypeInspector] = None,
+        annotator: t.Optional[TypeAnnotator] = None,
     ) -> None:
         self.__mode = mode
         self.__loader = loader if loader is not None else TypeLoader()
         self.__inspector = inspector if inspector is not None else TypeInspector()
+        self.__annotator = annotator if annotator is not None else TypeAnnotator()
         self.__domain_to_dto = dict[TypeInfo, DomainTypeMapping]()
 
     @t.overload
-    def create_dto_class_def(
+    def create_dto_def(
         self,
+        *,
         scope: ScopeASTBuilder,
         info: TypeInfo,
     ) -> TypeRef: ...
 
     @t.overload
-    def create_dto_class_def(
+    def create_dto_def(
         self,
+        *,
         scope: ScopeASTBuilder,
         name: str,
         fields: t.Mapping[str, TypeInfo],
         doc: t.Optional[str] = None,
-    ) -> TypeRef: ...
+    ) -> ClassRefBuilder: ...
 
     @override
-    def create_dto_class_def(
+    def create_dto_def(
         self,
+        *,
         scope: ScopeASTBuilder,
         info: t.Optional[TypeInfo] = None,
         name: t.Optional[str] = None,
@@ -81,16 +95,16 @@ class PydanticDtoMapper(DtoMapper):
             return class_def.ref()
 
         else:
-            assert_never(info, name, fields)
+            raise RuntimeError(info, name, fields)
 
     @override
     def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
         return scope.attr(dto, "model_validate_json" if self.__mode == "json" else "model_validate").call().arg(source)
 
-    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, dto: TypeRef, domain: TypeRef, source: Expr) -> Expr:
+    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, dto: TypeRef, domain: TypeInfo, source: Expr) -> Expr:
         return self.__domain_to_dto[domain].dto_to_domain(scope, dto, domain, source)
 
-    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeRef, dto: TypeRef, source: Expr) -> Expr:
+    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, dto: TypeRef, source: Expr) -> Expr:
         return self.__domain_to_dto[domain].domain_to_dto(scope, domain, dto, source)
 
     @override
@@ -114,25 +128,26 @@ class PydanticDtoMapper(DtoMapper):
     def __check_if_not_mapped(self, info: TypeInfo) -> bool:
         return info not in self.__domain_to_dto
 
-    def __extract_dependencies(self, options: ProcessedDomainTypeInfo) -> t.Sequence[RuntimeType]:
+    def __extract_dependencies(self, options: ProcessedDomainTypeInfo) -> t.Sequence[TypeInfo]:
         return options.dependencies
 
     def __process_domain_type(self, info: TypeInfo) -> ProcessedDomainTypeInfo:
         rtt = self.__loader.load(info)
 
         if isinstance(info, NamedTypeInfo):
-            if rtt in {None, Ellipsis} or (isinstance(rtt, type) and issubclass(rtt, self.__scalar_types)):
+            if rtt in {None, Ellipsis} or (isinstance(rtt, type) and issubclass(rtt, self.__scalar_types)):  # type: ignore[misc]
                 return self.__process_scalar(rtt, info)
 
-            origin = t.get_origin(rtt)
+            origin: object = t.get_origin(rtt)
             if origin is t.Union:
                 return self.__process_union(rtt, info)
 
-            if isinstance(origin, type):
+            if isinstance(rtt, type) and isinstance(origin, type):  # type: ignore[misc]
                 if issubclass(origin, t.Container):
                     return self.__process_container(rtt, info)
 
                 else:
+                    # TODO: check for more container cases.
                     raise NotImplementedError(rtt, origin)
 
             return self.__process_structure(rtt, info)
@@ -141,7 +156,8 @@ class PydanticDtoMapper(DtoMapper):
             return self.__process_scalar(rtt, info)
 
         else:
-            assert_never(info)
+            # NOTE: ruff can't work with custom assert_never
+            assert_never(info)  # noqa: RET503
 
     def __process_scalar(self, _: RuntimeType, info: TypeInfo) -> ProcessedDomainTypeInfo:
         def create(_: ScopeASTBuilder) -> DomainTypeMapping:
@@ -157,16 +173,27 @@ class PydanticDtoMapper(DtoMapper):
             mapping_factory=create,
         )
 
-    def __process_union(self, rtt: RuntimeType, info: TypeInfo) -> ProcessedDomainTypeInfo:
-        def create(_: ScopeASTBuilder) -> DomainTypeMapping:
-            inners = self.__get_type_param_maps(info)
+    def __process_union(self, rtt: RuntimeType, info: NamedTypeInfo) -> ProcessedDomainTypeInfo:
+        if info.qualname == predef().optional.qualname:
 
-            return DomainTypeMapping(
-                dto=replace(info, type_params=tuple(inner.dto for inner in inners)),
-                # TODO: isinstance & is not None (optional)
-                dto_to_domain=self.__build_ident_map,
-                domain_to_dto=self.__build_ident_map,
-            )
+            def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+                (of_type,) = self.__get_type_param_maps(info)
+
+                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
+                    return scope.ternary_not_none_expr(
+                        body=of_type.dto_to_domain(scope, source_type, target_type, source),
+                        test=source,
+                    )
+
+                return DomainTypeMapping(
+                    dto=replace(info, type_params=(of_type.dto,)),
+                    dto_to_domain=mapper,
+                    domain_to_dto=mapper,
+                )
+
+        else:
+            # TODO: isinstance for each union item
+            raise NotImplementedError(rtt, info)
 
         return ProcessedDomainTypeInfo(
             domain=info,
@@ -175,38 +202,61 @@ class PydanticDtoMapper(DtoMapper):
         )
 
     # TODO: implement mapping
-    def __process_container(self, rtt: RuntimeType, info: TypeInfo) -> ProcessedDomainTypeInfo:
+    def __process_container(self, rtt: type[object], info: NamedTypeInfo) -> ProcessedDomainTypeInfo:
         if issubclass(rtt, t.Mapping):
             key_type, value_type = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
+                    return scope.dict_expr(
+                        items=scope.attr(source, "items").call(),
+                        target=scope.tuple_expr(scope.attr("key"), scope.attr("value")),
+                        key=key_type.dto_to_domain(scope, source_type, target_type, scope.attr("key")),
+                        value=value_type.dto_to_domain(scope, source_type, target_type, scope.attr("value")),
+                    )
+
                 return DomainTypeMapping(
                     dto=replace(info, type_params=(key_type.dto, value_type.dto)),
-                    dto_to_domain=lambda x: x.dict_expr({"dto-to-domain": "yes"}),
-                    domain_to_dto=lambda x: x.dict_expr({"domain-to-dto": "yes"}),
+                    dto_to_domain=mapper,
+                    domain_to_dto=mapper,
                 )
 
         elif issubclass(rtt, t.Sequence):
             (of_type,) = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
+                    return scope.list_expr(
+                        items=scope.attr(source, "items").call(),
+                        target=scope.attr("item"),
+                        item=of_type.dto_to_domain(scope, ..., of_type.dto, scope.attr("item")),
+                    )
+
                 return DomainTypeMapping(
                     dto=replace(info, type_params=(of_type.dto,)),
-                    dto_to_domain=lambda x: x.list_expr(["dto-to-domain"]),
-                    domain_to_dto=lambda x: x.list_expr(["domain-to-dto"]),
+                    dto_to_domain=mapper,
+                    domain_to_dto=mapper,
                 )
 
         elif issubclass(rtt, t.Collection):
-            (of_type,) = info.type_params
+            (of_type,) = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
+                    return scope.set_expr(
+                        items=scope.attr(source, "items").call(),
+                        target=scope.attr("item"),
+                        item=of_type.dto_to_domain(scope, ..., of_type.dto, scope.attr("item")),
+                    )
+
                 return DomainTypeMapping(
                     dto=replace(info, type_params=(of_type.dto,)),
-                    dto_to_domain=lambda x: x.set_expr({"dto-to-domain"}),
-                    domain_to_dto=lambda x: x.set_expr({"domain-to-dto"}),
+                    dto_to_domain=mapper,
+                    domain_to_dto=mapper,
                 )
 
         else:
+            # TODO: check for more container cases
             raise NotImplementedError(rtt, info)
 
         return ProcessedDomainTypeInfo(
@@ -216,10 +266,10 @@ class PydanticDtoMapper(DtoMapper):
         )
 
     # TODO: generic struct case
-    def __process_structure(self, rtt: RuntimeType, info: TypeInfo) -> ProcessedDomainTypeInfo:
+    def __process_structure(self, rtt: RuntimeType, info: NamedTypeInfo) -> ProcessedDomainTypeInfo:
         fields = self.__extract_fields(rtt)
 
-        def create(scope: ScopeASTBuilder) -> TypeRef:
+        def create(scope: ScopeASTBuilder) -> DomainTypeMapping:
             field_mappers = {name: self.__domain_to_dto[annotation] for name, annotation in fields}
 
             with (
@@ -278,20 +328,29 @@ class PydanticDtoMapper(DtoMapper):
         )
 
     def __inspect_type_params(self, rtt: RuntimeType) -> t.Sequence[TypeInfo]:
-        args = t.get_args(rtt)
+        args: t.Optional[t.Sequence[RuntimeType]] = t.get_args(rtt)
         return [self.__inspector.inspect(arg) for arg in args] if args is not None else []
 
-    def __get_type_param_maps(self, domain: TypeInfo) -> t.Sequence[DomainTypeMapping]:
+    def __get_type_param_maps(self, domain: NamedTypeInfo) -> t.Sequence[DomainTypeMapping]:
         return [self.__domain_to_dto[tp] for tp in domain.type_params]
 
     def __extract_fields(self, rtt: RuntimeType) -> t.Sequence[tuple[str, TypeInfo]]:
         if is_dataclass(rtt):
-            return [(field.name, self.__inspector.inspect(field.type)) for field in fields(rtt)]
+            # TODO: solve dataclass field forward ref
+            return [
+                (
+                    field.name,
+                    self.__inspector.inspect(t.cast("RuntimeType", field.type))
+                    if not isinstance(t.cast("object", field.type), str)
+                    else self.__annotator.parse(t.cast("str", field.type)),
+                )
+                for field in t.cast("t.Sequence[Field[type[object]]]", fields(rtt))
+            ]
 
         # TODO: include properties & check member inheritance
         return [
             (field, self.__inspector.inspect(annotation))
-            for field, annotation in inspect.getmembers(rtt)
+            for field, annotation in t.cast("t.Sequence[tuple[str, RuntimeType]]", inspect.getmembers(rtt))
             if not field.startswith("_")
         ]
 

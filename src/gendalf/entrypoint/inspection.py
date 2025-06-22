@@ -44,7 +44,8 @@ class EntrypointInspector:
             try:
                 module = self.__loader.load(path)
 
-            except ImportError:
+            # NOTE: on import error - just ignore the specific path
+            except ImportError:  # noqa: PERF203
                 if not ignore_module_on_import_error:
                     raise
 

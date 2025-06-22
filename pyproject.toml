@@ -52,7 +52,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 target-version = "py39"
-include = ["src/**/*.py", "tests/**/*.py"]
+extend-exclude = ["examples/**/generated"]
 force-exclude = true
 line-length = 120
 output-format = "pylint"

@@ -32,6 +32,7 @@ def entrypoint(
 
 def entrypoint(
     obj: t.Optional[type[T]] = None,
+    *,
     name: t.Optional[str] = None,
     enabled: bool = True,
     version: t.Optional[str] = None,

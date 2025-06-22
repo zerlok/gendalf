@@ -11,13 +11,13 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 
 
 @pytest.mark.parametrize(
-    ("kind", "source", "input_rglob", "output_dir"),
+    ("kind", "case_dir", "input_rglob", "output_rglob"),
     [
         pytest.param(
             "fastapi",
-            Path().cwd() / "examples" / "my_greeter" / "src",
-            "my_service/core/greeter/**/*.py",
-            Path.cwd() / "examples" / "my_greeter" / "src" / "my_service" / "api",
+            Path().cwd() / "examples" / "my_greeter",
+            "src/**/*.py",
+            "generated/**/*.py",
         ),
     ],
 )
@@ -50,10 +50,10 @@ def type_loader(module_loader: ModuleLoader) -> TypeLoader:
 
 
 @pytest.fixture
-def module_loader(source: Path) -> t.Iterator[ModuleLoader]:
-    assert source.exists()
+def module_loader(source_dir: Path) -> t.Iterator[ModuleLoader]:
+    assert source_dir.exists()
 
-    with ModuleLoader.with_sys_path(source) as loader:
+    with ModuleLoader.with_sys_path(source_dir) as loader:
         yield loader
 
 
@@ -63,28 +63,38 @@ def entrypoint_inspector(module_loader: ModuleLoader, type_inspector: TypeInspec
 
 
 @pytest.fixture
+def source_dir(case_dir: Path) -> Path:
+    return case_dir / "src"
+
+
+@pytest.fixture
 def input_rglob() -> t.Optional[str]:
     return None
 
 
 @pytest.fixture
-def input_paths(source: Path, input_rglob: t.Optional[str]) -> t.Sequence[Path]:
-    return list(source.rglob(input_rglob if input_rglob is not None else "*.py"))
+def input_paths(case_dir: Path, input_rglob: t.Optional[str]) -> t.Sequence[Path]:
+    return list(case_dir.rglob(input_rglob if input_rglob is not None else "src/**/*.py"))
 
 
 @pytest.fixture
 def code_generator_context(
-    source: Path,
+    source_dir: Path,
     input_paths: t.Sequence[Path],
     output_dir: Path,
     entrypoint_inspector: EntrypointInspector,
 ) -> CodeGeneratorContext:
     return CodeGeneratorContext(
-        source=source,
+        source=source_dir,
         entrypoints=list(entrypoint_inspector.inspect_paths(input_paths)),
         output=output_dir,
         package=None,
     )
+
+
+@pytest.fixture
+def output_dir(case_dir: Path) -> Path:
+    return case_dir / "generated"
 
 
 @pytest.fixture
@@ -93,8 +103,8 @@ def output_rglob() -> t.Optional[str]:
 
 
 @pytest.fixture
-def output_paths(output_dir: Path, output_rglob: t.Optional[str]) -> t.Sequence[Path]:
-    return list(output_dir.rglob(output_rglob if output_rglob is not None else "*.py"))
+def output_paths(case_dir: Path, output_rglob: t.Optional[str]) -> t.Sequence[Path]:
+    return list(case_dir.rglob(output_rglob if output_rglob is not None else "generated/**/*.py"))
 
 
 @pytest.fixture

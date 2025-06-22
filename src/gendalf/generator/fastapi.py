@@ -56,7 +56,7 @@ class FastAPIModel(TypeDefinitionBuilder):
     def build_model_to_domain_expr(
         self,
         scope: ScopeASTBuilder,
-        domain: TypeRef,
+        domain: TypeInfo,
         source: AttrASTBuilder,
     ) -> Expr:
         return self.__mapper.build_dto_to_domain_expr(scope, self.__ref, domain, source)
@@ -111,7 +111,7 @@ class FastAPIDtoRegistry:
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
     ) -> None:
-        model_ref = self.__mapper.create_dto_class_def(
+        model_ref = self.__mapper.create_dto_def(
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Request"),
             fields={param.name: param.type_ for param in method.params},
@@ -132,7 +132,7 @@ class FastAPIDtoRegistry:
         if method.returns is None:
             return
 
-        model_ref = self.__mapper.create_dto_class_def(
+        model_ref = self.__mapper.create_dto_def(
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Response"),
             fields={"payload": method.returns},
@@ -150,7 +150,7 @@ class FastAPIDtoRegistry:
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
     ) -> None:
-        model_ref = self.__mapper.create_dto_class_def(
+        model_ref = self.__mapper.create_dto_def(
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Request"),
             fields={method.input_.name: method.input_.type_},
@@ -171,7 +171,7 @@ class FastAPIDtoRegistry:
         if method.output is None:
             return
 
-        model_ref = self.__mapper.create_dto_class_def(
+        model_ref = self.__mapper.create_dto_def(
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Response"),
             fields={"payload": method.output},

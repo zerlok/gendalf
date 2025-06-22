@@ -2,7 +2,7 @@ import abc
 import typing as t
 
 from astlab.abc import Expr, TypeRef
-from astlab.builder import ScopeASTBuilder
+from astlab.builder import ClassRefBuilder, ScopeASTBuilder
 from astlab.types import TypeInfo
 
 
@@ -18,25 +18,28 @@ class DtoMapper(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     @t.overload
-    def create_dto_class_def(
+    def create_dto_def(
         self,
+        *,
         scope: ScopeASTBuilder,
         info: TypeInfo,
     ) -> TypeRef: ...
 
     @abc.abstractmethod
     @t.overload
-    def create_dto_class_def(
+    def create_dto_def(
         self,
+        *,
         scope: ScopeASTBuilder,
         name: str,
         fields: t.Mapping[str, TypeInfo],
         doc: t.Optional[str] = None,
-    ) -> TypeRef: ...
+    ) -> ClassRefBuilder: ...
 
     @abc.abstractmethod
-    def create_dto_class_def(
+    def create_dto_def(
         self,
+        *,
         scope: ScopeASTBuilder,
         info: t.Optional[TypeInfo] = None,
         name: t.Optional[str] = None,
