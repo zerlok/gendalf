@@ -128,8 +128,9 @@ def cast(
 
     if kind == "fastapi":
         gen = FastAPICodeGenerator(
-            inspector=context.type_inspector,
             loader=context.type_loader,
+            inspector=context.type_inspector,
+            annotator=context.type_annotator,
         )
 
     else:

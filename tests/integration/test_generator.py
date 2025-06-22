@@ -2,7 +2,7 @@ import typing as t
 from pathlib import Path
 
 import pytest
-from astlab.types import ModuleLoader, TypeInspector, TypeLoader
+from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
 
 from gendalf.entrypoint.inspection import EntrypointInspector
 from gendalf.generator.abc import CodeGenerator
@@ -30,23 +30,18 @@ def test_code_generator_returns_expected_result(
 
 
 @pytest.fixture
-def code_generator(kind: str, type_inspector: TypeInspector, type_loader: TypeLoader) -> CodeGenerator:
+def code_generator(
+    kind: str,
+    type_loader: TypeLoader,
+    type_inspector: TypeInspector,
+    type_annotator: TypeAnnotator,
+) -> CodeGenerator:
     if kind == "fastapi":
-        return FastAPICodeGenerator(type_inspector, type_loader)
+        return FastAPICodeGenerator(type_loader, type_inspector, type_annotator)
 
     else:
         msg = "unknown code generator kind"
         raise ValueError(msg, kind)
-
-
-@pytest.fixture
-def type_inspector() -> TypeInspector:
-    return TypeInspector()
-
-
-@pytest.fixture
-def type_loader(module_loader: ModuleLoader) -> TypeLoader:
-    return TypeLoader(module_loader)
 
 
 @pytest.fixture
@@ -55,6 +50,21 @@ def module_loader(source_dir: Path) -> t.Iterator[ModuleLoader]:
 
     with ModuleLoader.with_sys_path(source_dir) as loader:
         yield loader
+
+
+@pytest.fixture
+def type_loader(module_loader: ModuleLoader) -> TypeLoader:
+    return TypeLoader(module_loader)
+
+
+@pytest.fixture
+def type_inspector() -> TypeInspector:
+    return TypeInspector()
+
+
+@pytest.fixture
+def type_annotator(module_loader: ModuleLoader) -> TypeAnnotator:
+    return TypeAnnotator(module_loader)
 
 
 @pytest.fixture

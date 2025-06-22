@@ -98,8 +98,21 @@ class PydanticDtoMapper(DtoMapper):
             raise RuntimeError(info, name, fields)
 
     @override
-    def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
-        return scope.attr(dto, "model_validate_json" if self.__mode == "json" else "model_validate").call().arg(source)
+    def build_dto_decode_expr(
+        self,
+        scope: ScopeASTBuilder,
+        dto: TypeRef,
+        source: Expr,
+        mode: t.Optional[t.Literal["python", "json"]] = None,
+    ) -> Expr:
+        return (
+            scope.attr(
+                dto,
+                "model_validate_json" if (mode if mode is not None else self.__mode) == "json" else "model_validate",
+            )
+            .call()
+            .arg(source)
+        )
 
     def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, dto: TypeRef, domain: TypeInfo, source: Expr) -> Expr:
         return self.__domain_to_dto[domain].dto_to_domain(scope, dto, domain, source)
@@ -108,10 +121,19 @@ class PydanticDtoMapper(DtoMapper):
         return self.__domain_to_dto[domain].domain_to_dto(scope, domain, dto, source)
 
     @override
-    def build_dto_encode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
+    def build_dto_encode_expr(
+        self,
+        scope: ScopeASTBuilder,
+        dto: TypeRef,
+        source: Expr,
+        mode: t.Optional[t.Literal["python", "json"]] = None,
+    ) -> Expr:
         return (
-            scope.attr(source, "model_dump_json" if self.__mode == "json" else "model_dump")
-            .call(kwargs={"mode": scope.const("json")} if self.__mode == "python" else None)
+            scope.attr(
+                source,
+                "model_dump_json" if (mode if mode is not None else self.__mode) == "json" else "model_dump",
+            )
+            .call()
             .kwarg("by_alias", scope.const(value=True))
             .kwarg("exclude_none", scope.const(value=True))
         )
@@ -275,7 +297,7 @@ class PydanticDtoMapper(DtoMapper):
             with (
                 scope.class_def(info.name)
                 .inherits(self.__base_model)
-                .docstring(f"DTO for `{info.qualname}` type") as class_def
+                .docstring(f"DTO for :class:`{info.qualname}` type.") as class_def
             ):
                 for name, annotation in fields:
                     class_def.field_def(name, self.__domain_to_dto[annotation].dto)

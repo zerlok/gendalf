@@ -10,7 +10,7 @@ from astlab.builder import (
     PackageASTBuilder,
     ScopeASTBuilder,
 )
-from astlab.types import NamedTypeInfo, TypeInfo, TypeInspector, TypeLoader
+from astlab.types import NamedTypeInfo, TypeAnnotator, TypeInfo, TypeInspector, TypeLoader
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.abc import CodeGenerator
@@ -38,8 +38,13 @@ class FastAPIModel(TypeDefinitionBuilder):
     def ref(self) -> ClassRefBuilder:
         return self.__ref
 
-    def build_load_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
-        return self.__mapper.build_dto_decode_expr(scope, self.__ref, source)
+    def build_load_expr(
+        self,
+        scope: ScopeASTBuilder,
+        source: Expr,
+        mode: t.Optional[t.Literal["python", "json"]] = None,
+    ) -> Expr:
+        return self.__mapper.build_dto_decode_expr(scope, self.__ref, source, mode=mode)
 
     def build_model_to_domain_param_stmts(
         self,
@@ -72,11 +77,16 @@ class FastAPIModel(TypeDefinitionBuilder):
             self.__mapper.build_domain_to_dto_expr(scope, domain, self.__ref, source),
         )
 
-    def build_dump_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
-        return self.__mapper.build_dto_encode_expr(scope, self.__ref, source)
+    def build_dump_expr(
+        self,
+        scope: ScopeASTBuilder,
+        source: Expr,
+        mode: t.Optional[t.Literal["python", "json"]] = None,
+    ) -> Expr:
+        return self.__mapper.build_dto_encode_expr(scope, self.__ref, source, mode=mode)
 
 
-class FastAPIDtoRegistry:
+class FastAPIModelRegistry:
     def __init__(self, mapper: PydanticDtoMapper) -> None:
         self.__mapper = mapper
 
@@ -86,15 +96,11 @@ class FastAPIDtoRegistry:
     def register(self, scope: ScopeASTBuilder, entrypoint: EntrypointInfo, method: MethodInfo) -> None:
         if isinstance(method, UnaryUnaryMethodInfo):
             self.__register_unary_request(scope, entrypoint, method)
-
-            if method.returns is not None:
-                self.__register_unary_response(scope, entrypoint, method)
+            self.__register_unary_response(scope, entrypoint, method)
 
         elif isinstance(method, StreamStreamMethodInfo):
             self.__register_stream_request(scope, entrypoint, method)
-
-            if method.output is not None:
-                self.__register_stream_response(scope, entrypoint, method)
+            self.__register_stream_response(scope, entrypoint, method)
 
         else:
             assert_never(method)
@@ -115,7 +121,7 @@ class FastAPIDtoRegistry:
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Request"),
             fields={param.name: param.type_ for param in method.params},
-            doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+            doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method.",
         )
 
         self.__requests[(entrypoint.name, method.name)] = FastAPIModel(
@@ -136,7 +142,7 @@ class FastAPIDtoRegistry:
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Response"),
             fields={"payload": method.returns},
-            doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+            doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method.",
         )
 
         self.__responses[(entrypoint.name, method.name)] = FastAPIModel(
@@ -154,7 +160,7 @@ class FastAPIDtoRegistry:
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Request"),
             fields={method.input_.name: method.input_.type_},
-            doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+            doc=f"Request DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method.",
         )
 
         self.__requests[(entrypoint.name, method.name)] = FastAPIModel(
@@ -175,7 +181,7 @@ class FastAPIDtoRegistry:
             scope=scope,
             name=self.__create_model_name(entrypoint, method, "Response"),
             fields={"payload": method.output},
-            doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method",
+            doc=f"Response DTO for :class:`{entrypoint.type_.qualname}` :meth:`{method.name}` entrypoint method.",
         )
 
         self.__responses[(entrypoint.name, method.name)] = FastAPIModel(
@@ -193,9 +199,10 @@ class FastAPIDtoRegistry:
 
 
 class FastAPICodeGenerator(CodeGenerator):
-    def __init__(self, inspector: TypeInspector, loader: TypeLoader) -> None:
-        self.__inspector = inspector
+    def __init__(self, loader: TypeLoader, inspector: TypeInspector, annotator: TypeAnnotator) -> None:
         self.__loader = loader
+        self.__inspector = inspector
+        self.__annotator = annotator
 
     @override
     def generate(self, context: CodeGeneratorContext) -> CodeGeneratorResult:
@@ -221,8 +228,15 @@ class FastAPICodeGenerator(CodeGenerator):
         self,
         context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
-    ) -> FastAPIDtoRegistry:
-        registry = FastAPIDtoRegistry(PydanticDtoMapper(loader=self.__loader))
+    ) -> FastAPIModelRegistry:
+        registry = FastAPIModelRegistry(
+            mapper=PydanticDtoMapper(
+                mode="python",
+                loader=self.__loader,
+                inspector=self.__inspector,
+                annotator=self.__annotator,
+            )
+        )
 
         with pkg.module("model") as mod:
             for entrypoint in context.entrypoints:
@@ -235,7 +249,7 @@ class FastAPICodeGenerator(CodeGenerator):
         self,
         context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
-        registry: FastAPIDtoRegistry,
+        registry: FastAPIModelRegistry,
     ) -> None:
         with pkg.module("server") as server:
             for entrypoint in context.entrypoints:
@@ -274,7 +288,7 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_server_handler_method(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPIDtoRegistry,
+        registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: MethodInfo,
     ) -> None:
@@ -290,7 +304,7 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_server_handler_method_unary_unary(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPIDtoRegistry,
+        registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
     ) -> None:
@@ -329,7 +343,7 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_server_handler_method_stream_stream(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPIDtoRegistry,
+        registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
     ) -> None:
@@ -358,7 +372,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 with builder.for_stmt("request_text", builder.attr("websocket", "iter_text").call()).async_():
                     builder.assign_stmt(
                         target="request",
-                        value=request_model.build_load_expr(builder, builder.attr("request_text")),
+                        value=request_model.build_load_expr(builder, builder.attr("request_text"), mode="json"),
                     )
                     builder.yield_stmt(
                         request_model.build_model_to_domain_expr(
@@ -385,7 +399,7 @@ class FastAPICodeGenerator(CodeGenerator):
                         builder.stmt(
                             builder.attr("websocket", "send_text")
                             .call()
-                            .arg(response_model.build_dump_expr(builder, builder.attr("response")))
+                            .arg(response_model.build_dump_expr(builder, builder.attr("response"), mode="json"))
                             .await_()
                         )
 
@@ -421,7 +435,7 @@ class FastAPICodeGenerator(CodeGenerator):
         self,
         context: CodeGeneratorContext,
         pkg: PackageASTBuilder,
-        registry: FastAPIDtoRegistry,
+        registry: FastAPIModelRegistry,
     ) -> None:
         client_impl_ref = NamedTypeInfo.build("httpx", "AsyncClient")
 
@@ -444,7 +458,7 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_client_method_unary_unary(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPIDtoRegistry,
+        registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
     ) -> None:
@@ -469,7 +483,9 @@ class FastAPICodeGenerator(CodeGenerator):
                 builder.assign_stmt("raw_response", request_call_expr)
                 builder.assign_stmt(
                     target="response",
-                    value=response_model.build_load_expr(builder, builder.attr("raw_response", "read").call()),
+                    value=response_model.build_load_expr(
+                        builder, builder.attr("raw_response", "read").call(), mode="json"
+                    ),
                 )
                 builder.return_stmt(builder.attr("response"))
 
@@ -479,7 +495,7 @@ class FastAPICodeGenerator(CodeGenerator):
     def __build_client_method_stream_stream(
         self,
         builder: ClassBodyASTBuilder,
-        registry: FastAPIDtoRegistry,
+        registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
     ) -> None:
@@ -515,7 +531,7 @@ class FastAPICodeGenerator(CodeGenerator):
                             builder.stmt(
                                 builder.attr("ws", "send_text")
                                 .call()
-                                .arg(request_model.build_dump_expr(builder, builder.attr("request")))
+                                .arg(request_model.build_dump_expr(builder, builder.attr("request"), mode="json"))
                                 .await_()
                             )
 
@@ -557,6 +573,8 @@ class FastAPICodeGenerator(CodeGenerator):
                         with try_stmt.else_():
                             builder.assign_stmt(
                                 target="response",
-                                value=response_model.build_load_expr(builder, builder.attr("raw_response")),
+                                value=response_model.build_load_expr(
+                                    builder, builder.attr("raw_response"), mode="json"
+                                ),
                             )
                             builder.yield_stmt(builder.attr("response"))
