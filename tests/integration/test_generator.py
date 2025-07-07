@@ -15,7 +15,7 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
     [
         pytest.param(
             "fastapi",
-            Path().cwd() / "examples" / "my_greeter",
+            Path.cwd() / "examples" / "my_greeter",
             "src/**/*.py",
             "generated/**/*.py",
         ),

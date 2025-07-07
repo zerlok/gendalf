@@ -31,7 +31,7 @@ class GreeterHandler:
             async for output in self.__impl.stream_greetings(receive_inputs()):
                 response = api.model.GreeterStreamGreetingsResponse(payload=output)
                 await websocket.send_text(response.model_dump_json(by_alias=True, exclude_none=True))
-        except (fastapi.WebSocketDisconnect,):
+        except fastapi.WebSocketDisconnect:
             pass
 
 def create_greeter_router(entrypoint: GreeterHandler) -> fastapi.APIRouter:

@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 from functools import cached_property
 
 from astlab.abc import Expr, TypeRef
-from astlab.builder import ClassRefBuilder, ScopeASTBuilder
+from astlab.builder import ClassTypeRefBuilder, ScopeASTBuilder
 from astlab.types import (
     LiteralTypeInfo,
     NamedTypeInfo,
@@ -69,7 +69,7 @@ class PydanticDtoMapper(DtoMapper):
         name: str,
         fields: t.Mapping[str, TypeInfo],
         doc: t.Optional[str] = None,
-    ) -> ClassRefBuilder: ...
+    ) -> ClassTypeRefBuilder: ...
 
     @override
     def create_dto_def(

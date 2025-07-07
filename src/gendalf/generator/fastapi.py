@@ -4,8 +4,8 @@ from astlab import package
 from astlab.abc import Expr, TypeDefinitionBuilder, TypeRef
 from astlab.builder import (
     AttrASTBuilder,
-    ClassBodyASTBuilder,
-    ClassRefBuilder,
+    ClassScopeASTBuilder,
+    ClassTypeRefBuilder,
     ModuleASTBuilder,
     PackageASTBuilder,
     ScopeASTBuilder,
@@ -24,7 +24,7 @@ class FastAPIModel(TypeDefinitionBuilder):
     def __init__(
         self,
         mapper: PydanticDtoMapper,
-        ref: ClassRefBuilder,
+        ref: ClassTypeRefBuilder,
     ) -> None:
         self.__mapper = mapper
         self.__ref = ref
@@ -35,7 +35,7 @@ class FastAPIModel(TypeDefinitionBuilder):
         return self.__ref.info
 
     @override
-    def ref(self) -> ClassRefBuilder:
+    def ref(self) -> ClassTypeRefBuilder:
         return self.__ref
 
     def build_load_expr(
@@ -262,24 +262,24 @@ class FastAPICodeGenerator(CodeGenerator):
 
                 self.__build_server_entrypoint_router(server, entrypoint, handler_def)
 
-    def __build_server_router_method(self, builder: ScopeASTBuilder, method: MethodInfo) -> None:
+    def __build_server_router_method(self, scope: ScopeASTBuilder, method: MethodInfo) -> None:
         if isinstance(method, UnaryUnaryMethodInfo):
-            builder.stmt(
-                builder.attr("router", "post")
+            scope.stmt(
+                scope.attr("router", "post")
                 .call()
-                .kwarg("path", builder.const(f"/{method.name}"))
-                .kwarg("description", builder.const(method.doc) if method.doc is not None else builder.none())
+                .kwarg("path", scope.const(f"/{method.name}"))
+                .kwarg("description", scope.const(method.doc) if method.doc is not None else scope.none())
                 .call()
-                .arg(builder.attr("entrypoint", method.name))
+                .arg(scope.attr("entrypoint", method.name))
             )
 
         elif isinstance(method, StreamStreamMethodInfo):
-            builder.stmt(
-                builder.attr("router", "websocket")
+            scope.stmt(
+                scope.attr("router", "websocket")
                 .call()
-                .kwarg("path", builder.const(f"/{method.name}"))
+                .kwarg("path", scope.const(f"/{method.name}"))
                 .call()
-                .arg(builder.attr("entrypoint", method.name))
+                .arg(scope.attr("entrypoint", method.name))
             )
 
         else:
@@ -287,23 +287,23 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_server_handler_method(
         self,
-        builder: ClassBodyASTBuilder,
+        scope: ClassScopeASTBuilder,
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: MethodInfo,
     ) -> None:
         if isinstance(method, UnaryUnaryMethodInfo):
-            self.__build_server_handler_method_unary_unary(builder, registry, entrypoint, method)
+            self.__build_server_handler_method_unary_unary(scope, registry, entrypoint, method)
 
         elif isinstance(method, StreamStreamMethodInfo):
-            self.__build_server_handler_method_stream_stream(builder, registry, entrypoint, method)
+            self.__build_server_handler_method_stream_stream(scope, registry, entrypoint, method)
 
         else:
             assert_never(method)
 
     def __build_server_handler_method_unary_unary(
         self,
-        builder: ClassBodyASTBuilder,
+        scope: ClassScopeASTBuilder,
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
@@ -312,9 +312,9 @@ class FastAPICodeGenerator(CodeGenerator):
         response_model = registry.get_response(entrypoint, method)
 
         with (
-            builder.method_def(method.name)
+            scope.method_def(method.name)
             .arg("request", request_model)
-            .returns(response_model if response_model is not None else builder.none())
+            .returns(response_model if response_model is not None else scope.none())
             .async_() as method_def
         ):
             input_params = {f"input_{param.name}": param for param in method.params}
@@ -322,27 +322,27 @@ class FastAPICodeGenerator(CodeGenerator):
             request_model.build_model_to_domain_param_stmts(
                 scope=method_def,
                 params=input_params,
-                source=builder.attr("request"),
+                source=scope.attr("request"),
             )
 
             impl_call = method_def.self_attr("impl", method.name).call(
-                kwargs={param.name: builder.attr(input_name) for input_name, param in input_params.items()}
+                kwargs={param.name: scope.attr(input_name) for input_name, param in input_params.items()}
             )
 
             if method.returns is not None and response_model is not None:
-                builder.assign_stmt("output", impl_call)
-                builder.assign_stmt(
+                scope.assign_stmt("output", impl_call)
+                scope.assign_stmt(
                     "response",
-                    response_model.build_domain_to_model_expr(method_def, method.returns, builder.attr("output")),
+                    response_model.build_domain_to_model_expr(method_def, method.returns, scope.attr("output")),
                 )
-                builder.return_stmt(builder.attr("response"))
+                scope.return_stmt(scope.attr("response"))
 
             else:
-                builder.stmt(impl_call)
+                scope.stmt(impl_call)
 
     def __build_server_handler_method_stream_stream(
         self,
-        builder: ClassBodyASTBuilder,
+        scope: ClassScopeASTBuilder,
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
@@ -359,47 +359,49 @@ class FastAPICodeGenerator(CodeGenerator):
             raise ValueError(detail, method)
 
         with (
-            builder.method_def(method.name)
+            scope.method_def(method.name)
             .arg("websocket", NamedTypeInfo.build("fastapi", "WebSocket"))
-            .returns(builder.none())
+            .returns(scope.none())
             .async_() as method_def
         ):
             with (
                 method_def.func_def("receive_inputs")
-                .returns(builder.iterator_type(method.input_.type_, is_async=True))
+                .returns(scope.iterator_type(method.input_.type_, is_async=True))
                 .async_()
             ):
-                with builder.for_stmt("request_text", builder.attr("websocket", "iter_text").call()).async_():
-                    builder.assign_stmt(
+                with scope.for_stmt("request_text", scope.attr("websocket", "iter_text").call()).async_().body():
+                    scope.assign_stmt(
                         target="request",
-                        value=request_model.build_load_expr(builder, builder.attr("request_text"), mode="json"),
+                        value=request_model.build_load_expr(scope, scope.attr("request_text"), mode="json"),
                     )
-                    builder.yield_stmt(
-                        request_model.build_model_to_domain_expr(
-                            method_def, method.input_.type_, builder.attr("request")
-                        )
+                    scope.yield_stmt(
+                        request_model.build_model_to_domain_expr(method_def, method.input_.type_, scope.attr("request"))
                     )
 
-            with builder.try_stmt() as try_stmt:
+            with scope.try_stmt() as try_stmt:
                 with try_stmt.body():
-                    builder.stmt(builder.attr("websocket", "accept").call().await_())
+                    scope.stmt(scope.attr("websocket", "accept").call().await_())
 
-                    with builder.for_stmt(
-                        target="output",
-                        items=method_def.self_attr("impl", method.name)
-                        .call()
-                        .arg(builder.attr("receive_inputs").call()),
-                    ).async_():
-                        builder.assign_stmt(
+                    with (
+                        scope.for_stmt(
+                            target="output",
+                            items=method_def.self_attr("impl", method.name)
+                            .call()
+                            .arg(scope.attr("receive_inputs").call()),
+                        )
+                        .async_()
+                        .body()
+                    ):
+                        scope.assign_stmt(
                             target="response",
                             value=response_model.build_domain_to_model_expr(
-                                method_def, method.output, builder.attr("output")
+                                method_def, method.output, scope.attr("output")
                             ),
                         )
-                        builder.stmt(
-                            builder.attr("websocket", "send_text")
+                        scope.stmt(
+                            scope.attr("websocket", "send_text")
                             .call()
-                            .arg(response_model.build_dump_expr(builder, builder.attr("response"), mode="json"))
+                            .arg(response_model.build_dump_expr(scope, scope.attr("response"), mode="json"))
                             .await_()
                         )
 
@@ -408,28 +410,28 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_server_entrypoint_router(
         self,
-        builder: ModuleASTBuilder,
+        scope: ModuleASTBuilder,
         entrypoint: EntrypointInfo,
         handler_def: TypeRef,
     ) -> None:
         fastapi_router_ref = NamedTypeInfo.build("fastapi", "APIRouter")
 
         with (
-            builder.func_def(f"create_{camel2snake(entrypoint.name)}_router")
+            scope.func_def(f"create_{camel2snake(entrypoint.name)}_router")
             .arg("entrypoint", handler_def)
             .returns(fastapi_router_ref)
         ):
-            builder.assign_stmt(
+            scope.assign_stmt(
                 "router",
-                value=builder.call(fastapi_router_ref)
-                .kwarg("prefix", builder.const(f"/{camel2snake(entrypoint.name)}"))
-                .kwarg("tags", builder.const([entrypoint.name])),
+                value=scope.call(fastapi_router_ref)
+                .kwarg("prefix", scope.const(f"/{camel2snake(entrypoint.name)}"))
+                .kwarg("tags", scope.const([entrypoint.name])),
             )
 
             for method in entrypoint.methods:
-                self.__build_server_router_method(builder, method)
+                self.__build_server_router_method(scope, method)
 
-            builder.return_stmt(builder.attr("router"))
+            scope.return_stmt(scope.attr("router"))
 
     def __build_client_module(
         self,
@@ -457,7 +459,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_client_method_unary_unary(
         self,
-        builder: ClassBodyASTBuilder,
+        scope: ClassScopeASTBuilder,
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
@@ -466,35 +468,33 @@ class FastAPICodeGenerator(CodeGenerator):
         response_model = registry.get_response(entrypoint, method)
 
         with (
-            builder.method_def(method.name)
+            scope.method_def(method.name)
             .arg("request", request_model)
-            .returns(response_model if response_model is not None else builder.const(None))
+            .returns(response_model if response_model is not None else scope.const(None))
             .async_() as method_def
         ):
             request_call_expr = (
                 method_def.self_attr("impl", "post")
                 .call()
-                .kwarg("url", builder.const(f"/{camel2snake(entrypoint.name)}/{method.name}"))
-                .kwarg("json", request_model.build_dump_expr(builder, builder.attr("request")))
+                .kwarg("url", scope.const(f"/{camel2snake(entrypoint.name)}/{method.name}"))
+                .kwarg("json", request_model.build_dump_expr(scope, scope.attr("request")))
                 .await_()
             )
 
             if method.returns is not None and response_model is not None:
-                builder.assign_stmt("raw_response", request_call_expr)
-                builder.assign_stmt(
+                scope.assign_stmt("raw_response", request_call_expr)
+                scope.assign_stmt(
                     target="response",
-                    value=response_model.build_load_expr(
-                        builder, builder.attr("raw_response", "read").call(), mode="json"
-                    ),
+                    value=response_model.build_load_expr(scope, scope.attr("raw_response", "read").call(), mode="json"),
                 )
-                builder.return_stmt(builder.attr("response"))
+                scope.return_stmt(scope.attr("response"))
 
             else:
-                builder.stmt(request_call_expr)
+                scope.stmt(request_call_expr)
 
     def __build_client_method_stream_stream(
         self,
-        builder: ClassBodyASTBuilder,
+        scope: ClassScopeASTBuilder,
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
@@ -519,62 +519,61 @@ class FastAPICodeGenerator(CodeGenerator):
             raise ValueError(detail, method)
 
         with (
-            builder.method_def(method.name)
+            scope.method_def(method.name)
             .arg("requests", request_model.ref().iterator(is_async=True))
             .returns(response_model.ref().iterator(is_async=True))
             .async_() as method_def
         ):
-            with builder.func_def("send_requests").arg("ws", ws_session_ref).returns(builder.none()).async_():
-                with builder.try_stmt() as try_stmt:
+            with scope.func_def("send_requests").arg("ws", ws_session_ref).returns(scope.none()).async_():
+                with scope.try_stmt() as try_stmt:
                     with try_stmt.body():
-                        with builder.for_stmt("request", builder.attr("requests")).async_():
-                            builder.stmt(
-                                builder.attr("ws", "send_text")
+                        with scope.for_stmt("request", scope.attr("requests")).async_().body():
+                            scope.stmt(
+                                scope.attr("ws", "send_text")
                                 .call()
-                                .arg(request_model.build_dump_expr(builder, builder.attr("request"), mode="json"))
+                                .arg(request_model.build_dump_expr(scope, scope.attr("request"), mode="json"))
                                 .await_()
                             )
 
                     with try_stmt.finally_():
-                        builder.stmt(builder.attr("ws", "close").call().await_())
+                        scope.stmt(scope.attr("ws", "close").call().await_())
 
             with (
-                builder.with_stmt()
+                scope.with_stmt()
                 .async_()
                 .enter(
-                    cm=builder.call(ws_connect_ref)
-                    .kwarg("url", builder.const(f"/{camel2snake(entrypoint.name)}/{method.name}"))
+                    cm=scope.call(ws_connect_ref)
+                    .kwarg("url", scope.const(f"/{camel2snake(entrypoint.name)}/{method.name}"))
                     .kwarg("client", method_def.self_attr("impl")),
                     name="ws",
                 )
-                .enter(builder.call(task_group_ref), "tasks")
+                .enter(scope.call(task_group_ref), "tasks")
+                .body()
             ):
-                builder.assign_stmt(
+                scope.assign_stmt(
                     target="sender",
-                    value=builder.attr("tasks", "create_task")
+                    value=scope.attr("tasks", "create_task")
                     .call()
-                    .arg(builder.attr("send_requests").call().arg(builder.attr("ws"))),
+                    .arg(scope.attr("send_requests").call().arg(scope.attr("ws"))),
                 )
 
-                with builder.while_stmt(builder.not_op(builder.attr("sender", "done").call())):
-                    with builder.try_stmt() as try_stmt:
+                with scope.while_stmt(scope.not_op(scope.attr("sender", "done").call())).body():
+                    with scope.try_stmt() as try_stmt:
                         with try_stmt.body():
-                            builder.assign_stmt(
+                            scope.assign_stmt(
                                 target="raw_response",
-                                value=builder.attr("ws", "receive_text").call().await_(),
+                                value=scope.attr("ws", "receive_text").call().await_(),
                             )
 
                         with try_stmt.except_(*ws_error_refs, name="err"):
-                            with builder.if_stmt(builder.attr("sender", "done").call()) as if_stmt, if_stmt.body():
-                                builder.break_stmt()
+                            with scope.if_stmt(scope.attr("sender", "done").call()) as if_stmt, if_stmt.body():
+                                scope.break_stmt()
 
-                            builder.raise_stmt(builder.attr("err"))
+                            scope.raise_stmt(scope.attr("err"))
 
                         with try_stmt.else_():
-                            builder.assign_stmt(
+                            scope.assign_stmt(
                                 target="response",
-                                value=response_model.build_load_expr(
-                                    builder, builder.attr("raw_response"), mode="json"
-                                ),
+                                value=response_model.build_load_expr(scope, scope.attr("raw_response"), mode="json"),
                             )
-                            builder.yield_stmt(builder.attr("response"))
+                            scope.yield_stmt(scope.attr("response"))
