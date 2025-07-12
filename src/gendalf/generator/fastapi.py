@@ -55,7 +55,7 @@ class FastAPIModel(TypeDefinitionBuilder):
         for name, info in params.items():
             scope.assign_stmt(
                 target=name,
-                value=self.__mapper.build_dto_to_domain_expr(scope, self.__ref, info.type_, source.attr(info.name)),
+                value=self.__mapper.build_dto_to_domain_expr(scope, info.type_, source.attr(info.name)),
             )
 
     def build_model_to_domain_expr(
@@ -64,7 +64,7 @@ class FastAPIModel(TypeDefinitionBuilder):
         domain: TypeInfo,
         source: AttrASTBuilder,
     ) -> Expr:
-        return self.__mapper.build_dto_to_domain_expr(scope, self.__ref, domain, source)
+        return self.__mapper.build_dto_to_domain_expr(scope, domain, source)
 
     def build_domain_to_model_expr(
         self,
@@ -74,7 +74,7 @@ class FastAPIModel(TypeDefinitionBuilder):
     ) -> Expr:
         return scope.call(self.__ref).kwarg(
             "payload",
-            self.__mapper.build_domain_to_dto_expr(scope, domain, self.__ref, source),
+            self.__mapper.build_domain_to_dto_expr(scope, domain, source),
         )
 
     def build_dump_expr(
@@ -270,7 +270,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 .kwarg("path", scope.const(f"/{method.name}"))
                 .kwarg("description", scope.const(method.doc) if method.doc is not None else scope.none())
                 .call()
-                .arg(scope.attr("entrypoint", method.name))
+                .arg(scope.attr("handler", method.name))
             )
 
         elif isinstance(method, StreamStreamMethodInfo):
@@ -279,7 +279,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 .call()
                 .kwarg("path", scope.const(f"/{method.name}"))
                 .call()
-                .arg(scope.attr("entrypoint", method.name))
+                .arg(scope.attr("handler", method.name))
             )
 
         else:
@@ -375,7 +375,9 @@ class FastAPICodeGenerator(CodeGenerator):
                         value=request_model.build_load_expr(scope, scope.attr("request_text"), mode="json"),
                     )
                     scope.yield_stmt(
-                        request_model.build_model_to_domain_expr(method_def, method.input_.type_, scope.attr("request"))
+                        request_model.build_model_to_domain_expr(
+                            method_def, method.input_.type_, scope.attr("request", method.input_.name)
+                        )
                     )
 
             with scope.try_stmt() as try_stmt:
@@ -418,7 +420,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
         with (
             scope.func_def(f"create_{camel2snake(entrypoint.name)}_router")
-            .arg("entrypoint", handler_def)
+            .arg("handler", handler_def)
             .returns(fastapi_router_ref)
         ):
             scope.assign_stmt(
@@ -566,7 +568,7 @@ class FastAPICodeGenerator(CodeGenerator):
                             )
 
                         with try_stmt.except_(*ws_error_refs, name="err"):
-                            with scope.if_stmt(scope.attr("sender", "done").call()) as if_stmt, if_stmt.body():
+                            with scope.if_stmt(scope.attr("sender", "done").call()).body():
                                 scope.break_stmt()
 
                             scope.raise_stmt(scope.attr("err"))

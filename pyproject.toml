@@ -27,8 +27,7 @@ gendalf = "gendalf.cli:cli"
 [tool.poetry.dependencies]
 python = "^3.9"
 click = { version = "^8.1.8", optional = true }
-#astlab = { version = ">=0.2,<1", optional = true }
-astlab = {path="../astlab", develop=true}
+astlab = { version = ">=0.4,<1" }
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.13.0"
@@ -80,6 +79,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # CLI is built with `click` framework
+"examples/**" = [
+    "INP001", # allow implicit namespace packages in examples dir.
+    "T201", # allow `print` in examples.
+]
 "src/gendalf/cli.py" = [
     "FBT001", # CLI commands can use non keyword flag options
     "PLR0913", # CLI commands can use a lots of arguments and options

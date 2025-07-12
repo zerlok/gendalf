@@ -34,11 +34,11 @@ class GreeterHandler:
         except fastapi.WebSocketDisconnect:
             pass
 
-def create_greeter_router(entrypoint: GreeterHandler) -> fastapi.APIRouter:
+def create_greeter_router(handler: GreeterHandler) -> fastapi.APIRouter:
     router = fastapi.APIRouter(prefix='/greeter', tags=['Greeter'])
-    router.post(path='/greet', description='Make a greeting message for a user.')(entrypoint.greet)
-    router.post(path='/notify_greeted', description=None)(entrypoint.notify_greeted)
-    router.websocket(path='/stream_greetings')(entrypoint.stream_greetings)
+    router.post(path='/greet', description='Make a greeting message for a user.')(handler.greet)
+    router.post(path='/notify_greeted', description=None)(handler.notify_greeted)
+    router.websocket(path='/stream_greetings')(handler.stream_greetings)
     return router
 
 class UsersHandler:
@@ -58,8 +58,8 @@ class UsersHandler:
         response = api.model.UsersRegisterResponse(payload=api.model.UserInfo(id_=output.id_, name=output.name))
         return response
 
-def create_users_router(entrypoint: UsersHandler) -> fastapi.APIRouter:
+def create_users_router(handler: UsersHandler) -> fastapi.APIRouter:
     router = fastapi.APIRouter(prefix='/users', tags=['Users'])
-    router.post(path='/find_by_name', description=None)(entrypoint.find_by_name)
-    router.post(path='/register', description='Register user with provided name.')(entrypoint.register)
+    router.post(path='/find_by_name', description=None)(handler.find_by_name)
+    router.post(path='/register', description='Register user with provided name.')(handler.register)
     return router

@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta
 from functools import cached_property
 
 from astlab.abc import Expr, TypeRef
-from astlab.builder import ClassTypeRefBuilder, ScopeASTBuilder
+from astlab.builder import ClassTypeRefBuilder, Comprehension, ScopeASTBuilder
 from astlab.types import (
     LiteralTypeInfo,
     NamedTypeInfo,
@@ -22,6 +22,9 @@ from astlab.types import (
 from gendalf._typing import assert_never, override
 from gendalf.generator.dto.abc import DtoMapper
 from gendalf.generator.dto.traverse import traverse_post_order
+
+if t.TYPE_CHECKING:
+    from dataclasses import Field
 
 
 @dataclass(frozen=True)
@@ -114,11 +117,13 @@ class PydanticDtoMapper(DtoMapper):
             .arg(source)
         )
 
-    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, dto: TypeRef, domain: TypeInfo, source: Expr) -> Expr:
-        return self.__domain_to_dto[domain].dto_to_domain(scope, dto, domain, source)
+    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        mapping = self.__domain_to_dto[domain]
+        return mapping.dto_to_domain(scope, mapping.dto, domain, source)
 
-    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, dto: TypeRef, source: Expr) -> Expr:
-        return self.__domain_to_dto[domain].domain_to_dto(scope, domain, dto, source)
+    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        mapping = self.__domain_to_dto[domain]
+        return mapping.domain_to_dto(scope, domain, mapping.dto, source)
 
     @override
     def build_dto_encode_expr(
@@ -201,9 +206,9 @@ class PydanticDtoMapper(DtoMapper):
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
                 (of_type,) = self.__get_type_param_maps(info)
 
-                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
+                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, _: TypeRef, source: Expr) -> Expr:
                     return scope.ternary_not_none_expr(
-                        body=of_type.dto_to_domain(scope, source_type, target_type, source),
+                        body=of_type.dto_to_domain(scope, source_type, of_type.dto, source),
                         test=source,
                     )
 
@@ -231,8 +236,10 @@ class PydanticDtoMapper(DtoMapper):
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
                 def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
                     return scope.dict_expr(
-                        items=scope.attr(source, "items").call(),
-                        target=scope.tuple_expr(scope.attr("key"), scope.attr("value")),
+                        items=Comprehension(
+                            target=scope.tuple_expr(scope.attr("key"), scope.attr("value")),
+                            items=scope.attr(source, "items").call(),
+                        ),
                         key=key_type.dto_to_domain(scope, source_type, target_type, scope.attr("key")),
                         value=value_type.dto_to_domain(scope, source_type, target_type, scope.attr("value")),
                     )
@@ -247,11 +254,13 @@ class PydanticDtoMapper(DtoMapper):
             (of_type,) = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
-                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
+                def mapper(scope: ScopeASTBuilder, _: TypeRef, __: TypeRef, source: Expr) -> Expr:
                     return scope.list_expr(
-                        items=scope.attr(source, "items").call(),
-                        target=scope.attr("item"),
-                        item=of_type.dto_to_domain(scope, ..., of_type.dto, scope.attr("item")),
+                        items=Comprehension(
+                            target=scope.attr("item"),
+                            items=scope.attr(source, "items").call(),
+                        ),
+                        element=of_type.dto_to_domain(scope, ..., of_type.dto, scope.attr("item")),
                     )
 
                 return DomainTypeMapping(
@@ -264,11 +273,13 @@ class PydanticDtoMapper(DtoMapper):
             (of_type,) = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
-                def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
+                def mapper(scope: ScopeASTBuilder, _: TypeRef, __: TypeRef, source: Expr) -> Expr:
                     return scope.set_expr(
-                        items=scope.attr(source, "items").call(),
-                        target=scope.attr("item"),
-                        item=of_type.dto_to_domain(scope, ..., of_type.dto, scope.attr("item")),
+                        items=Comprehension(
+                            target=scope.attr("item"),
+                            items=scope.attr(source, "items").call(),
+                        ),
+                        element=of_type.dto_to_domain(scope, ..., of_type.dto, scope.attr("item")),
                     )
 
                 return DomainTypeMapping(

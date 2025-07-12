@@ -40,14 +40,12 @@ name = "astlab"
 version = "0.4.0"
 description = "provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code."
 optional = false
-python-versions = "^3.9"
+python-versions = "<4.0,>=3.9"
 groups = ["main"]
-files = []
-develop = true
-
-[package.source]
-type = "directory"
-url = "../astlab"
+files = [
+    {file = "astlab-0.4.0-py3-none-any.whl", hash = "sha256:29a84f8e114a0ad98f898c8257e98c43cf6964fe9ce32b98f028eb60efe35400"},
+    {file = "astlab-0.4.0.tar.gz", hash = "sha256:e5ca2f93d2433c9a377dd46c98fc26e2ef466b99e7127e217b1a8a73d6dbfa75"},
+]
 
 [[package]]
 name = "certifi"
@@ -734,4 +732,4 @@ cli = ["click"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "95b344cde3b62bc5eea22132871814939fc02d6c381e93bfb3cdbb10a94219bc"
+content-hash = "fb1a2a8bd08726284a4f3b96538b69ab007ed992bf12b663618b2e25949e7cc3"

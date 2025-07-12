@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import typing as t
 from dataclasses import dataclass
-from pathlib import Path
 
-from gendalf.model import EntrypointInfo
+if t.TYPE_CHECKING:
+    from pathlib import Path
+
+    from gendalf.model import EntrypointInfo
 
 
 @dataclass(frozen=True)
