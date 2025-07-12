@@ -121,7 +121,6 @@ def cast(
 
     gen_context = CodeGeneratorContext(
         entrypoints=list(context.inspect_source()),
-        source=context.source,
         output=output if output is not None else context.source,
         package=package,
     )
@@ -148,7 +147,7 @@ def cast(
 @cli.command()
 @click.pass_obj
 def show(context: CLIContext) -> None:
-    """Show info about the package"""
+    """Show info about the package."""
 
     printer = Printer(
         dest=click.get_text_stream("stdout"),

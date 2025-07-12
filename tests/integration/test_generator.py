@@ -89,13 +89,11 @@ def input_paths(case_dir: Path, input_rglob: t.Optional[str]) -> t.Sequence[Path
 
 @pytest.fixture
 def code_generator_context(
-    source_dir: Path,
     input_paths: t.Sequence[Path],
     output_dir: Path,
     entrypoint_inspector: EntrypointInspector,
 ) -> CodeGeneratorContext:
     return CodeGeneratorContext(
-        source=source_dir,
         entrypoints=list(entrypoint_inspector.inspect_paths(input_paths)),
         output=output_dir,
         package=None,

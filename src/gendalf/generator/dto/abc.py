@@ -60,6 +60,15 @@ class DtoMapper(metaclass=abc.ABCMeta):
         """
         raise NotImplementedError
 
+    # TODO: consider statements interface
+    @abc.abstractmethod
+    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        raise NotImplementedError
+
     @abc.abstractmethod
     def build_dto_encode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
         """

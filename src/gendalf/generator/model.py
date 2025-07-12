@@ -11,7 +11,6 @@ if t.TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class CodeGeneratorContext:
-    source: Path
     entrypoints: t.Sequence[EntrypointInfo]
     output: Path
     package: t.Optional[str]

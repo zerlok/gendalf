@@ -117,10 +117,12 @@ class PydanticDtoMapper(DtoMapper):
             .arg(source)
         )
 
+    @override
     def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
         mapping = self.__domain_to_dto[domain]
         return mapping.dto_to_domain(scope, mapping.dto, domain, source)
 
+    @override
     def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
         mapping = self.__domain_to_dto[domain]
         return mapping.domain_to_dto(scope, domain, mapping.dto, source)
