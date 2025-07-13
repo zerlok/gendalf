@@ -1,4 +1,4 @@
-import api.model
+import api.fastapi.model
 import asyncio
 import httpx
 import httpx_ws
@@ -9,15 +9,15 @@ class GreeterAsyncClient:
     def __init__(self, impl: httpx.AsyncClient) -> None:
         self.__impl = impl
 
-    async def greet(self, request: api.model.GreeterGreetRequest) -> api.model.GreeterGreetResponse:
+    async def greet(self, request: api.fastapi.model.GreeterGreetRequest) -> api.fastapi.model.GreeterGreetResponse:
         raw_response = await self.__impl.post(url='/greeter/greet', json=request.model_dump(by_alias=True, exclude_none=True))
-        response = api.model.GreeterGreetResponse.model_validate_json(raw_response.read())
+        response = api.fastapi.model.GreeterGreetResponse.model_validate_json(raw_response.read())
         return response
 
-    async def notify_greeted(self, request: api.model.GreeterNotifyGreetedRequest) -> None:
+    async def notify_greeted(self, request: api.fastapi.model.GreeterNotifyGreetedRequest) -> None:
         await self.__impl.post(url='/greeter/notify_greeted', json=request.model_dump(by_alias=True, exclude_none=True))
 
-    async def stream_greetings(self, requests: typing.AsyncIterable[api.model.GreeterStreamGreetingsRequest]) -> typing.AsyncIterable[api.model.GreeterStreamGreetingsResponse]:
+    async def stream_greetings(self, requests: typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsRequest]) -> typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
 
         async def send_requests(ws: httpx_ws.AsyncWebSocketSession) -> None:
             try:
@@ -35,7 +35,7 @@ class GreeterAsyncClient:
                         break
                     raise err
                 else:
-                    response = api.model.GreeterStreamGreetingsResponse.model_validate_json(raw_response)
+                    response = api.fastapi.model.GreeterStreamGreetingsResponse.model_validate_json(raw_response)
                     yield response
 
 class UsersAsyncClient:
@@ -43,12 +43,12 @@ class UsersAsyncClient:
     def __init__(self, impl: httpx.AsyncClient) -> None:
         self.__impl = impl
 
-    async def find_by_name(self, request: api.model.UsersFindByNameRequest) -> api.model.UsersFindByNameResponse:
+    async def find_by_name(self, request: api.fastapi.model.UsersFindByNameRequest) -> api.fastapi.model.UsersFindByNameResponse:
         raw_response = await self.__impl.post(url='/users/find_by_name', json=request.model_dump(by_alias=True, exclude_none=True))
-        response = api.model.UsersFindByNameResponse.model_validate_json(raw_response.read())
+        response = api.fastapi.model.UsersFindByNameResponse.model_validate_json(raw_response.read())
         return response
 
-    async def register(self, request: api.model.UsersRegisterRequest) -> api.model.UsersRegisterResponse:
+    async def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:
         raw_response = await self.__impl.post(url='/users/register', json=request.model_dump(by_alias=True, exclude_none=True))
-        response = api.model.UsersRegisterResponse.model_validate_json(raw_response.read())
+        response = api.fastapi.model.UsersRegisterResponse.model_validate_json(raw_response.read())
         return response

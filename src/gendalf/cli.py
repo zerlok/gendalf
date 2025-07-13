@@ -3,7 +3,7 @@ from functools import cached_property
 from pathlib import Path
 
 import click
-from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
+from astlab.types import ModuleLoader, PackageInfo, TypeAnnotator, TypeInspector, TypeLoader
 
 from gendalf._typing import assert_never
 from gendalf.entrypoint.inspection import EntrypointInspector
@@ -101,7 +101,7 @@ GenKind = t.Literal["fastapi"]
 @click.option(
     "-p",
     "--package",
-    type=str,
+    type=PackageInfo.from_str,
     default=None,
 )
 @click.option(
@@ -114,7 +114,7 @@ def cast(
     context: CLIContext,
     kind: GenKind,
     output: t.Optional[Path],
-    package: t.Optional[str],
+    package: t.Optional[PackageInfo],
     dry_run: bool,
 ) -> None:
     """Generate code for specified python package."""

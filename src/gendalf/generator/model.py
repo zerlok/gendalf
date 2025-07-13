@@ -6,6 +6,8 @@ from dataclasses import dataclass
 if t.TYPE_CHECKING:
     from pathlib import Path
 
+    from astlab.types import PackageInfo
+
     from gendalf.model import EntrypointInfo
 
 
@@ -13,7 +15,7 @@ if t.TYPE_CHECKING:
 class CodeGeneratorContext:
     entrypoints: t.Sequence[EntrypointInfo]
     output: Path
-    package: t.Optional[str]
+    package: t.Optional[PackageInfo]
 
 
 @dataclass(frozen=True)

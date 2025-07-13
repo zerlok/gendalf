@@ -1,4 +1,5 @@
 import typing as t
+from contextlib import contextmanager
 
 from astlab import package
 from astlab.abc import Expr, TypeDefinitionBuilder, TypeRef
@@ -14,6 +15,7 @@ from astlab.types import NamedTypeInfo, TypeAnnotator, TypeInfo, TypeInspector, 
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.abc import CodeGenerator
+from gendalf.generator.dto.abc import DtoMapper
 from gendalf.generator.dto.pydantic import PydanticDtoMapper
 from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
@@ -23,7 +25,7 @@ from gendalf.string_case import camel2snake, snake2camel
 class FastAPIModel(TypeDefinitionBuilder):
     def __init__(
         self,
-        mapper: PydanticDtoMapper,
+        mapper: DtoMapper,
         ref: ClassTypeRefBuilder,
     ) -> None:
         self.__mapper = mapper
@@ -206,10 +208,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
     @override
     def generate(self, context: CodeGeneratorContext) -> CodeGeneratorResult:
-        with package(context.package or "api", inspector=self.__inspector) as pkg:
-            with pkg.init():
-                pass
-
+        with self.__init_root(context) as (root, pkg):
             registry = self.__build_model_module(context, pkg)
             self.__build_server_module(context, pkg, registry)
             self.__build_client_module(context, pkg, registry)
@@ -220,9 +219,26 @@ class FastAPICodeGenerator(CodeGenerator):
                     path=context.output.joinpath(module.file),
                     content=content,
                 )
-                for module, content in pkg.render()
+                for module, content in root.render()
             ],
         )
+
+    @contextmanager
+    def __init_root(self, context: CodeGeneratorContext) -> t.Iterator[tuple[PackageASTBuilder, PackageASTBuilder]]:
+        if context.package is not None:
+            with package(context.package, inspector=self.__inspector) as pkg:
+                yield pkg, pkg
+
+        else:
+            with package("api") as api_pkg:
+                with api_pkg.init():
+                    pass
+
+                with api_pkg.sub("fastapi") as fastapi_pkg:
+                    with fastapi_pkg.init():
+                        pass
+
+                    yield api_pkg, fastapi_pkg
 
     def __build_model_module(
         self,

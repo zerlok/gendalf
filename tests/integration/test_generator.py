@@ -11,37 +11,36 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 
 
 @pytest.mark.parametrize(
-    ("kind", "case_dir", "input_rglob", "output_rglob"),
+    ("code_generator_kind", "case_dir", "input_rglob"),
     [
         pytest.param(
             "fastapi",
             Path.cwd() / "examples" / "my_greeter",
             "src/**/*.py",
-            "generated/**/*.py",
         ),
     ],
 )
 def test_code_generator_returns_expected_result(
     code_generator: CodeGenerator,
     code_generator_context: CodeGeneratorContext,
-    code_generator_result: CodeGeneratorResult,
+    expected_code_generator_result: CodeGeneratorResult,
 ) -> None:
-    assert sort_files(code_generator.generate(code_generator_context)) == code_generator_result
+    assert sort_files(code_generator.generate(code_generator_context)) == expected_code_generator_result
 
 
 @pytest.fixture
 def code_generator(
-    kind: str,
+    code_generator_kind: str,
     type_loader: TypeLoader,
     type_inspector: TypeInspector,
     type_annotator: TypeAnnotator,
 ) -> CodeGenerator:
-    if kind == "fastapi":
+    if code_generator_kind == "fastapi":
         return FastAPICodeGenerator(type_loader, type_inspector, type_annotator)
 
     else:
         msg = "unknown code generator kind"
-        raise ValueError(msg, kind)
+        raise ValueError(msg, code_generator_kind)
 
 
 @pytest.fixture
@@ -111,12 +110,12 @@ def output_rglob() -> t.Optional[str]:
 
 
 @pytest.fixture
-def output_paths(case_dir: Path, output_rglob: t.Optional[str]) -> t.Sequence[Path]:
-    return list(case_dir.rglob(output_rglob if output_rglob is not None else "generated/**/*.py"))
+def expected_output_paths(output_dir: Path, output_rglob: t.Optional[str]) -> t.Sequence[Path]:
+    return list(output_dir.rglob(output_rglob if output_rglob is not None else "*.py"))
 
 
 @pytest.fixture
-def code_generator_result(output_paths: t.Sequence[Path]) -> CodeGeneratorResult:
+def expected_code_generator_result(expected_output_paths: t.Sequence[Path]) -> CodeGeneratorResult:
     return sort_files(
         CodeGeneratorResult(
             files=[
@@ -124,7 +123,7 @@ def code_generator_result(output_paths: t.Sequence[Path]) -> CodeGeneratorResult
                     path=path,
                     content=path.read_text(),
                 )
-                for path in output_paths
+                for path in expected_output_paths
             ],
         )
     )

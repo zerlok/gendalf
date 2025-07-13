@@ -11,9 +11,9 @@ class DtoMapper(metaclass=abc.ABCMeta):
     Build DTO class definitions, encode, decode and DTO & domain mapping expressions.
 
     * DTO decoding (deserialize / parse raw data to DTO)
-    * Transport → Domain (aka inbound mapping, build domain object from DTO)
-    * Domain → Transport (aka outbound mapping, build DTO from domain object)
-    * DTO encode (serialize / dump DTO to raw format)
+    * DTO → Domain (aka inbound mapping, build domain object from DTO)
+    * Domain → DTO (aka outbound mapping, build DTO from domain object)
+    * DTO encoding (serialize / dump DTO to raw format)
     """
 
     @abc.abstractmethod
@@ -46,7 +46,14 @@ class DtoMapper(metaclass=abc.ABCMeta):
         fields: t.Optional[t.Mapping[str, TypeInfo]] = None,
         doc: t.Optional[str] = None,
     ) -> TypeRef:
-        """Create DTO class in the given scope using provided domain class info or the given name and domain fields."""
+        """
+        Create DTO class in the given scope using domain class info OR using provided name and domain fields.
+
+        :scope: keeps the generated code
+        :info: domain type info (mapper should automatically detect public fields and make DTO mapping for them)
+        :name: name of the DTO class
+        :fields: fields for DTO class with corresponding names and domain type infos (manually specify a set of fields)
+        """
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -63,10 +70,24 @@ class DtoMapper(metaclass=abc.ABCMeta):
     # TODO: consider statements interface
     @abc.abstractmethod
     def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        """
+        Build mapping expression from the DTO type to domain type in the given scope.
+
+        :scope: keeps generated code
+        :domain: an info about the domain type that has a corresponding DTO class
+        :source: an expression of DTO object the mapping should be built from
+        """
         raise NotImplementedError
 
     @abc.abstractmethod
     def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        """
+        Build mapping expression from the domain type to DTO type in the given scope.
+
+        :scope: keeps generated code
+        :domain: an info about the domain type that has a corresponding DTO class
+        :source: an expression of domain object the mapping should be built from
+        """
         raise NotImplementedError
 
     @abc.abstractmethod

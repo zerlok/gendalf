@@ -1,4 +1,4 @@
-import api.model
+import api.fastapi.model
 import fastapi
 import my_service.core.greeter.greeter
 import my_service.core.greeter.model
@@ -9,13 +9,13 @@ class GreeterHandler:
     def __init__(self, impl: my_service.core.greeter.greeter.Greeter) -> None:
         self.__impl = impl
 
-    def greet(self, request: api.model.GreeterGreetRequest) -> api.model.GreeterGreetResponse:
+    def greet(self, request: api.fastapi.model.GreeterGreetRequest) -> api.fastapi.model.GreeterGreetResponse:
         input_user = my_service.core.greeter.model.UserInfo(id_=request.user.id_, name=request.user.name)
         output = self.__impl.greet(user=input_user)
-        response = api.model.GreeterGreetResponse(payload=output)
+        response = api.fastapi.model.GreeterGreetResponse(payload=output)
         return response
 
-    def notify_greeted(self, request: api.model.GreeterNotifyGreetedRequest) -> None:
+    def notify_greeted(self, request: api.fastapi.model.GreeterNotifyGreetedRequest) -> None:
         input_user = my_service.core.greeter.model.UserInfo(id_=request.user.id_, name=request.user.name)
         input_message = request.message
         self.__impl.notify_greeted(user=input_user, message=input_message)
@@ -24,12 +24,12 @@ class GreeterHandler:
 
         async def receive_inputs() -> typing.AsyncIterator[my_service.core.greeter.model.UserInfo]:
             async for request_text in websocket.iter_text():
-                request = api.model.GreeterStreamGreetingsRequest.model_validate_json(request_text)
+                request = api.fastapi.model.GreeterStreamGreetingsRequest.model_validate_json(request_text)
                 yield my_service.core.greeter.model.UserInfo(id_=request.users.id_, name=request.users.name)
         try:
             await websocket.accept()
             async for output in self.__impl.stream_greetings(receive_inputs()):
-                response = api.model.GreeterStreamGreetingsResponse(payload=output)
+                response = api.fastapi.model.GreeterStreamGreetingsResponse(payload=output)
                 await websocket.send_text(response.model_dump_json(by_alias=True, exclude_none=True))
         except fastapi.WebSocketDisconnect:
             pass
@@ -46,16 +46,16 @@ class UsersHandler:
     def __init__(self, impl: my_service.core.greeter.greeter.UserManager) -> None:
         self.__impl = impl
 
-    def find_by_name(self, request: api.model.UsersFindByNameRequest) -> api.model.UsersFindByNameResponse:
+    def find_by_name(self, request: api.fastapi.model.UsersFindByNameRequest) -> api.fastapi.model.UsersFindByNameResponse:
         input_name = request.name
         output = self.__impl.find_by_name(name=input_name)
-        response = api.model.UsersFindByNameResponse(payload=api.model.UserInfo(id_=output.id_, name=output.name) if output is not None else None)
+        response = api.fastapi.model.UsersFindByNameResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name) if output is not None else None)
         return response
 
-    def register(self, request: api.model.UsersRegisterRequest) -> api.model.UsersRegisterResponse:
+    def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:
         input_name = request.name
         output = self.__impl.register(name=input_name)
-        response = api.model.UsersRegisterResponse(payload=api.model.UserInfo(id_=output.id_, name=output.name))
+        response = api.fastapi.model.UsersRegisterResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name))
         return response
 
 def create_users_router(handler: UsersHandler) -> fastapi.APIRouter:
