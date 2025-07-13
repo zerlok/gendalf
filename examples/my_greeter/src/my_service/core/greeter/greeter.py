@@ -9,14 +9,14 @@ from my_service.core.greeter.model import UserInfo
 class Greeter:
     def __init__(self, greeting: MessageGenerator) -> None:
         self.__greeting = greeting
-        self.__previous: list[str] = []
+        self.__previous: list[tuple[UserInfo, str]] = []
 
     def greet(self, user: UserInfo) -> str:
         """Make a greeting message for a user."""
         return self.__greeting.gen_message({"user": user, "previous_greetings": self.__previous})
 
     def notify_greeted(self, user: UserInfo, message: str) -> None:
-        self.__previous.append(message)
+        self.__previous.append((user, message))
 
     async def stream_greetings(self, users: t.AsyncIterator[UserInfo]) -> t.AsyncIterator[str]:
         async for user in users:

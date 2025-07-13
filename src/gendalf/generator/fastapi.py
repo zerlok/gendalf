@@ -315,7 +315,7 @@ class FastAPICodeGenerator(CodeGenerator):
             scope.method_def(method.name)
             .arg("request", request_model)
             .returns(response_model if response_model is not None else scope.none())
-            .async_() as method_def
+            .async_(is_async=method.is_async) as method_def
         ):
             input_params = {f"input_{param.name}": param for param in method.params}
 
@@ -350,6 +350,10 @@ class FastAPICodeGenerator(CodeGenerator):
         request_model = registry.get_request(entrypoint, method)
         response_model = registry.get_response(entrypoint, method)
 
+        if not method.is_async:
+            msg = "synchronous stream stream methods are not supported, make this method asynchronous"
+            raise NotImplementedError(msg, method)
+
         if method.output is None:
             detail = "invalid method"
             raise ValueError(detail, method)
@@ -362,7 +366,7 @@ class FastAPICodeGenerator(CodeGenerator):
             scope.method_def(method.name)
             .arg("websocket", NamedTypeInfo.build("fastapi", "WebSocket"))
             .returns(scope.none())
-            .async_() as method_def
+            .async_(is_async=method.is_async) as method_def
         ):
             with (
                 method_def.func_def("receive_inputs")

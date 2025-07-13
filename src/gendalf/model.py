@@ -20,6 +20,7 @@ class Visitable(metaclass=abc.ABCMeta):
 @dataclass(frozen=True)
 class _BaseMethodInfo:
     name: str
+    is_async: bool
     doc: t.Optional[str]
 
 

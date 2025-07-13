@@ -84,6 +84,7 @@ class EntrypointInspector:
             input_stream_param = params[0]
             return StreamStreamMethodInfo(
                 name=name,
+                is_async=inspect.isasyncgenfunction(func),
                 input_=ParameterInfo(
                     name=input_stream_param.name,
                     type_=streaming_type,
@@ -99,6 +100,7 @@ class EntrypointInspector:
 
         return UnaryUnaryMethodInfo(
             name=name,
+            is_async=inspect.iscoroutinefunction(func),
             params=[self.__build_param(param) for param in params],
             returns=self.__inspector.inspect(signature.return_annotation)
             if signature.return_annotation is not None
