@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
 
+from gendalf.cli import GenKind
 from gendalf.entrypoint.inspection import EntrypointInspector
 from gendalf.generator.abc import CodeGenerator
 from gendalf.generator.fastapi import FastAPICodeGenerator
@@ -11,15 +12,12 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 
 
 @pytest.mark.parametrize(
-    ("code_generator_kind", "case_dir", "input_rglob"),
+    ("case_dir", "input_rglob"),
     [
-        pytest.param(
-            "fastapi",
-            Path.cwd() / "examples" / "my_greeter",
-            "src/**/*.py",
-        ),
+        pytest.param(Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
     ],
 )
+@pytest.mark.parametrize("code_generator_kind", t.get_args(GenKind))
 def test_code_generator_returns_expected_result(
     code_generator: CodeGenerator,
     code_generator_context: CodeGeneratorContext,
@@ -83,6 +81,7 @@ def input_rglob() -> t.Optional[str]:
 
 @pytest.fixture
 def input_paths(case_dir: Path, input_rglob: t.Optional[str]) -> t.Sequence[Path]:
+    assert case_dir.is_dir()
     return list(case_dir.rglob(input_rglob if input_rglob is not None else "src/**/*.py"))
 
 
@@ -110,8 +109,17 @@ def output_rglob() -> t.Optional[str]:
 
 
 @pytest.fixture
-def expected_output_paths(output_dir: Path, output_rglob: t.Optional[str]) -> t.Sequence[Path]:
-    return list(output_dir.rglob(output_rglob if output_rglob is not None else "*.py"))
+def expected_output_paths(
+    code_generator_kind: str,
+    output_dir: Path,
+    output_rglob: t.Optional[str],
+) -> t.Sequence[Path]:
+    paths = [output_dir / "api" / "__init__.py"]
+    paths.extend(
+        (output_dir / "api").rglob(output_rglob if output_rglob is not None else f"{code_generator_kind}/**/*.py")
+    )
+
+    return paths
 
 
 @pytest.fixture
@@ -125,7 +133,7 @@ def expected_code_generator_result(expected_output_paths: t.Sequence[Path]) -> C
                 )
                 for path in expected_output_paths
             ],
-        )
+        ),
     )
 
 

@@ -1,4 +1,4 @@
-from api.server import GreeterHandler, UsersHandler, create_greeter_router, create_users_router
+from api.fastapi.server import GreeterHandler, UsersHandler, create_greeter_router, create_users_router
 from fastapi import FastAPI
 from my_service.core.greeter.greeter import Greeter, UserManager
 from my_service.core.message.generator import FstringMessageGenerator

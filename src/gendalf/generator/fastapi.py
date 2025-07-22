@@ -15,7 +15,6 @@ from astlab.types import NamedTypeInfo, TypeAnnotator, TypeInfo, TypeInspector, 
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.abc import CodeGenerator
-from gendalf.generator.dto.abc import DtoMapper
 from gendalf.generator.dto.pydantic import PydanticDtoMapper
 from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
@@ -25,7 +24,7 @@ from gendalf.string_case import camel2snake, snake2camel
 class FastAPIModel(TypeDefinitionBuilder):
     def __init__(
         self,
-        mapper: DtoMapper,
+        mapper: PydanticDtoMapper,
         ref: ClassTypeRefBuilder,
     ) -> None:
         self.__mapper = mapper
@@ -40,13 +39,12 @@ class FastAPIModel(TypeDefinitionBuilder):
     def ref(self) -> ClassTypeRefBuilder:
         return self.__ref
 
-    def build_load_expr(
+    def build_load_json_expr(
         self,
         scope: ScopeASTBuilder,
         source: Expr,
-        mode: t.Optional[t.Literal["python", "json"]] = None,
     ) -> Expr:
-        return self.__mapper.build_dto_decode_expr(scope, self.__ref, source, mode=mode)
+        return self.__mapper.mode("json").build_dto_decode_expr(scope, self.__ref, source)
 
     def build_model_to_domain_param_stmts(
         self,
@@ -79,13 +77,19 @@ class FastAPIModel(TypeDefinitionBuilder):
             self.__mapper.build_domain_to_dto_expr(scope, domain, source),
         )
 
-    def build_dump_expr(
+    def build_dump_json_expr(
         self,
         scope: ScopeASTBuilder,
         source: Expr,
-        mode: t.Optional[t.Literal["python", "json"]] = None,
     ) -> Expr:
-        return self.__mapper.build_dto_encode_expr(scope, self.__ref, source, mode=mode)
+        return self.__mapper.mode("json").build_dto_encode_expr(scope, self.__ref, source)
+
+    def build_dump_serializable_expr(
+        self,
+        scope: ScopeASTBuilder,
+        source: Expr,
+    ) -> Expr:
+        return self.__mapper.mode("serializable").build_dto_encode_expr(scope, self.__ref, source)
 
 
 class FastAPIModelRegistry:
@@ -251,7 +255,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 loader=self.__loader,
                 inspector=self.__inspector,
                 annotator=self.__annotator,
-            )
+            ),
         )
 
         with pkg.module("model") as mod:
@@ -286,7 +290,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 .kwarg("path", scope.const(f"/{method.name}"))
                 .kwarg("description", scope.const(method.doc) if method.doc is not None else scope.none())
                 .call()
-                .arg(scope.attr("handler", method.name))
+                .arg(scope.attr("handler", method.name)),
             )
 
         elif isinstance(method, StreamStreamMethodInfo):
@@ -295,7 +299,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 .call()
                 .kwarg("path", scope.const(f"/{method.name}"))
                 .call()
-                .arg(scope.attr("handler", method.name))
+                .arg(scope.attr("handler", method.name)),
             )
 
         else:
@@ -342,7 +346,7 @@ class FastAPICodeGenerator(CodeGenerator):
             )
 
             impl_call = method_def.self_attr("impl", method.name).call(
-                kwargs={param.name: scope.attr(input_name) for input_name, param in input_params.items()}
+                kwargs={param.name: scope.attr(input_name) for input_name, param in input_params.items()},
             )
 
             if method.returns is not None and response_model is not None:
@@ -392,12 +396,14 @@ class FastAPICodeGenerator(CodeGenerator):
                 with scope.for_stmt("request_text", scope.attr("websocket", "iter_text").call()).async_().body():
                     scope.assign_stmt(
                         target="request",
-                        value=request_model.build_load_expr(scope, scope.attr("request_text"), mode="json"),
+                        value=request_model.build_load_json_expr(scope, scope.attr("request_text")),
                     )
                     scope.yield_stmt(
                         request_model.build_model_to_domain_expr(
-                            method_def, method.input_.type_, scope.attr("request", method.input_.name)
-                        )
+                            method_def,
+                            method.input_.type_,
+                            scope.attr("request", method.input_.name),
+                        ),
                     )
 
             with scope.try_stmt() as try_stmt:
@@ -417,14 +423,16 @@ class FastAPICodeGenerator(CodeGenerator):
                         scope.assign_stmt(
                             target="response",
                             value=response_model.build_domain_to_model_expr(
-                                method_def, method.output, scope.attr("output")
+                                method_def,
+                                method.output,
+                                scope.attr("output"),
                             ),
                         )
                         scope.stmt(
                             scope.attr("websocket", "send_text")
                             .call()
-                            .arg(response_model.build_dump_expr(scope, scope.attr("response"), mode="json"))
-                            .await_()
+                            .arg(response_model.build_dump_json_expr(scope, scope.attr("response")))
+                            .await_(),
                         )
 
                 with try_stmt.except_(NamedTypeInfo.build("fastapi", "WebSocketDisconnect")):
@@ -499,7 +507,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 method_def.self_attr("impl", "post")
                 .call()
                 .kwarg("url", scope.const(f"/{camel2snake(entrypoint.name)}/{method.name}"))
-                .kwarg("json", request_model.build_dump_expr(scope, scope.attr("request")))
+                .kwarg("json", request_model.build_dump_serializable_expr(scope, scope.attr("request")))
                 .await_()
             )
 
@@ -507,7 +515,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 scope.assign_stmt("raw_response", request_call_expr)
                 scope.assign_stmt(
                     target="response",
-                    value=response_model.build_load_expr(scope, scope.attr("raw_response", "read").call(), mode="json"),
+                    value=response_model.build_load_json_expr(scope, scope.attr("raw_response", "read").call()),
                 )
                 scope.return_stmt(scope.attr("response"))
 
@@ -553,8 +561,8 @@ class FastAPICodeGenerator(CodeGenerator):
                             scope.stmt(
                                 scope.attr("ws", "send_text")
                                 .call()
-                                .arg(request_model.build_dump_expr(scope, scope.attr("request"), mode="json"))
-                                .await_()
+                                .arg(request_model.build_dump_json_expr(scope, scope.attr("request")))
+                                .await_(),
                             )
 
                     with try_stmt.finally_():
@@ -596,6 +604,6 @@ class FastAPICodeGenerator(CodeGenerator):
                         with try_stmt.else_():
                             scope.assign_stmt(
                                 target="response",
-                                value=response_model.build_load_expr(scope, scope.attr("raw_response"), mode="json"),
+                                value=response_model.build_load_json_expr(scope, scope.attr("raw_response")),
                             )
                             scope.yield_stmt(scope.attr("response"))

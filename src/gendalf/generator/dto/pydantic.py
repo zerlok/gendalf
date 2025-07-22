@@ -20,11 +20,14 @@ from astlab.types import (
 )
 
 from gendalf._typing import assert_never, override
-from gendalf.generator.dto.abc import DtoMapper
+from gendalf.generator.dto.abc import DtoMapper, DuplexDtoMapper
 from gendalf.generator.dto.traverse import traverse_post_order
 
 if t.TYPE_CHECKING:
     from dataclasses import Field
+
+
+PydanticMode = t.Literal["python", "serializable", "json"]
 
 
 @dataclass(frozen=True)
@@ -45,16 +48,16 @@ class PydanticDtoMapper(DtoMapper):
     def __init__(
         self,
         *,
-        mode: t.Literal["python", "json"] = "json",
+        mode: PydanticMode = "json",
         loader: t.Optional[TypeLoader] = None,
         inspector: t.Optional[TypeInspector] = None,
         annotator: t.Optional[TypeAnnotator] = None,
     ) -> None:
-        self.__mode = mode
         self.__loader = loader if loader is not None else TypeLoader()
         self.__inspector = inspector if inspector is not None else TypeInspector()
         self.__annotator = annotator if annotator is not None else TypeAnnotator()
         self.__domain_to_dto = dict[TypeInfo, DomainTypeMapping]()
+        self.__mapper = PydanticDuplexDtoMapper(self.__domain_to_dto, mode)
 
     @t.overload
     def create_dto_def(
@@ -100,50 +103,24 @@ class PydanticDtoMapper(DtoMapper):
         else:
             raise RuntimeError(info, name, fields)
 
+    def mode(self, value: PydanticMode) -> DuplexDtoMapper:
+        return PydanticDuplexDtoMapper(self.__domain_to_dto, value)
+
     @override
-    def build_dto_decode_expr(
-        self,
-        scope: ScopeASTBuilder,
-        dto: TypeRef,
-        source: Expr,
-        mode: t.Optional[t.Literal["python", "json"]] = None,
-    ) -> Expr:
-        return (
-            scope.attr(
-                dto,
-                "model_validate_json" if (mode if mode is not None else self.__mode) == "json" else "model_validate",
-            )
-            .call()
-            .arg(source)
-        )
+    def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
+        return self.__mapper.build_dto_encode_expr(scope, dto, source)
 
     @override
     def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
-        mapping = self.__domain_to_dto[domain]
-        return mapping.dto_to_domain(scope, mapping.dto, domain, source)
+        return self.__mapper.build_dto_to_domain_expr(scope, domain, source)
 
     @override
     def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
-        mapping = self.__domain_to_dto[domain]
-        return mapping.domain_to_dto(scope, domain, mapping.dto, source)
+        return self.__mapper.build_domain_to_dto_expr(scope, domain, source)
 
     @override
-    def build_dto_encode_expr(
-        self,
-        scope: ScopeASTBuilder,
-        dto: TypeRef,
-        source: Expr,
-        mode: t.Optional[t.Literal["python", "json"]] = None,
-    ) -> Expr:
-        return (
-            scope.attr(
-                source,
-                "model_dump_json" if (mode if mode is not None else self.__mode) == "json" else "model_dump",
-            )
-            .call()
-            .kwarg("by_alias", scope.const(value=True))
-            .kwarg("exclude_none", scope.const(value=True))
-        )
+    def build_dto_encode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
+        return self.__mapper.build_dto_encode_expr(scope, dto, source)
 
     def __build_type_mapping(self, scope: ScopeASTBuilder, infos: t.Sequence[TypeInfo]) -> None:
         for result in traverse_post_order(
@@ -233,9 +210,10 @@ class PydanticDtoMapper(DtoMapper):
     # TODO: implement mapping
     def __process_container(self, rtt: type[object], info: NamedTypeInfo) -> ProcessedDomainTypeInfo:
         if issubclass(rtt, t.Mapping):
-            key_type, value_type = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+                key_type, value_type = self.__get_type_param_maps(info)
+
                 def mapper(scope: ScopeASTBuilder, source_type: TypeRef, target_type: TypeRef, source: Expr) -> Expr:
                     return scope.dict_expr(
                         items=Comprehension(
@@ -253,9 +231,10 @@ class PydanticDtoMapper(DtoMapper):
                 )
 
         elif issubclass(rtt, t.Sequence):
-            (of_type,) = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+                (of_type,) = self.__get_type_param_maps(info)
+
                 def mapper(scope: ScopeASTBuilder, _: TypeRef, __: TypeRef, source: Expr) -> Expr:
                     return scope.list_expr(
                         items=Comprehension(
@@ -272,9 +251,10 @@ class PydanticDtoMapper(DtoMapper):
                 )
 
         elif issubclass(rtt, t.Collection):
-            (of_type,) = self.__get_type_param_maps(info)
 
             def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+                (of_type,) = self.__get_type_param_maps(info)
+
                 def mapper(scope: ScopeASTBuilder, _: TypeRef, __: TypeRef, source: Expr) -> Expr:
                     return scope.set_expr(
                         items=Comprehension(
@@ -397,3 +377,42 @@ class PydanticDtoMapper(DtoMapper):
         source: Expr,
     ) -> Expr:
         return source
+
+
+class PydanticDuplexDtoMapper(DuplexDtoMapper):
+    def __init__(self, registry: t.Mapping[TypeInfo, DomainTypeMapping], mode: PydanticMode) -> None:
+        self.__registry = registry
+        self.__mode = mode
+
+    @override
+    def build_dto_decode_expr(
+        self,
+        scope: ScopeASTBuilder,
+        dto: TypeRef,
+        source: Expr,
+    ) -> Expr:
+        return scope.attr(dto, "model_validate_json" if self.__mode == "json" else "model_validate").call().arg(source)
+
+    @override
+    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        mapping = self.__registry[domain]
+        return mapping.dto_to_domain(scope, mapping.dto, domain, source)
+
+    @override
+    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+        mapping = self.__registry[domain]
+        return mapping.domain_to_dto(scope, domain, mapping.dto, source)
+
+    @override
+    def build_dto_encode_expr(
+        self,
+        scope: ScopeASTBuilder,
+        dto: TypeRef,
+        source: Expr,
+    ) -> Expr:
+        return (
+            scope.attr(source, "model_dump_json" if self.__mode == "json" else "model_dump")
+            .call(kwargs={"mode": scope.const("json")} if self.__mode == "serializable" else None)
+            .kwarg("by_alias", scope.const(value=True))
+            .kwarg("exclude_none", scope.const(value=True))
+        )

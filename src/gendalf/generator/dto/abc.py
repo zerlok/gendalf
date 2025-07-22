@@ -6,14 +6,9 @@ from astlab.builder import ClassTypeRefBuilder, ScopeASTBuilder
 from astlab.types import TypeInfo
 
 
-class DtoMapper(metaclass=abc.ABCMeta):
+class DtoDefFactory(metaclass=abc.ABCMeta):
     """
-    Build DTO class definitions, encode, decode and DTO & domain mapping expressions.
-
-    * DTO decoding (deserialize / parse raw data to DTO)
-    * DTO → Domain (aka inbound mapping, build domain object from DTO)
-    * Domain → DTO (aka outbound mapping, build DTO from domain object)
-    * DTO encoding (serialize / dump DTO to raw format)
+    Create DTO class definitions.
     """
 
     @abc.abstractmethod
@@ -56,6 +51,15 @@ class DtoMapper(metaclass=abc.ABCMeta):
         """
         raise NotImplementedError
 
+
+class InboundDtoMapper(metaclass=abc.ABCMeta):
+    """
+    Build inbound DTO mapping expressions.
+
+    * DTO decoding (deserialize / parse raw data to DTO)
+    * DTO → Domain (aka inbound mapping, build domain object from DTO)
+    """
+
     @abc.abstractmethod
     def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
         """
@@ -79,6 +83,15 @@ class DtoMapper(metaclass=abc.ABCMeta):
         """
         raise NotImplementedError
 
+
+class OutboundDtoMapper(metaclass=abc.ABCMeta):
+    """
+    Build outbound DTO mapping expressions.
+
+    * Domain → DTO (aka outbound mapping, build DTO from domain object)
+    * DTO encoding (serialize / dump DTO to raw format)
+    """
+
     @abc.abstractmethod
     def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
         """
@@ -100,3 +113,25 @@ class DtoMapper(metaclass=abc.ABCMeta):
         :source: a DTO object that should be encoded
         """
         raise NotImplementedError
+
+
+class DuplexDtoMapper(InboundDtoMapper, OutboundDtoMapper, metaclass=abc.ABCMeta):
+    """
+    Build inbound & outbound DTO mapping expressions.
+
+    * DTO decoding (deserialize / parse raw data to DTO)
+    * DTO → Domain (aka inbound mapping, build domain object from DTO)
+    * Domain → DTO (aka outbound mapping, build DTO from domain object)
+    * DTO encoding (serialize / dump DTO to raw format)
+    """
+
+
+class DtoMapper(DuplexDtoMapper, DtoDefFactory, metaclass=abc.ABCMeta):
+    """
+    Build DTO class definitions, inbound & outbound DTO mapping expressions.
+
+    * DTO decoding (deserialize / parse raw data to DTO)
+    * DTO → Domain (aka inbound mapping, build domain object from DTO)
+    * Domain → DTO (aka outbound mapping, build DTO from domain object)
+    * DTO encoding (serialize / dump DTO to raw format)
+    """

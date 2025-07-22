@@ -2,8 +2,8 @@ import asyncio
 import typing as t
 
 import httpx
-from api.client import GreeterAsyncClient
-from api.model import GreeterGreetRequest, GreeterStreamGreetingsRequest, UserInfo
+from api.fastapi.client import GreeterAsyncClient
+from api.fastapi.model import GreeterGreetRequest, GreeterStreamGreetingsRequest, UserInfo
 
 
 async def main() -> None:

@@ -10,12 +10,12 @@ class GreeterAsyncClient:
         self.__impl = impl
 
     async def greet(self, request: api.fastapi.model.GreeterGreetRequest) -> api.fastapi.model.GreeterGreetResponse:
-        raw_response = await self.__impl.post(url='/greeter/greet', json=request.model_dump(by_alias=True, exclude_none=True))
+        raw_response = await self.__impl.post(url='/greeter/greet', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
         response = api.fastapi.model.GreeterGreetResponse.model_validate_json(raw_response.read())
         return response
 
     async def notify_greeted(self, request: api.fastapi.model.GreeterNotifyGreetedRequest) -> None:
-        await self.__impl.post(url='/greeter/notify_greeted', json=request.model_dump(by_alias=True, exclude_none=True))
+        await self.__impl.post(url='/greeter/notify_greeted', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
 
     async def stream_greetings(self, requests: typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsRequest]) -> typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
 
@@ -44,11 +44,11 @@ class UsersAsyncClient:
         self.__impl = impl
 
     async def find_by_name(self, request: api.fastapi.model.UsersFindByNameRequest) -> api.fastapi.model.UsersFindByNameResponse:
-        raw_response = await self.__impl.post(url='/users/find_by_name', json=request.model_dump(by_alias=True, exclude_none=True))
+        raw_response = await self.__impl.post(url='/users/find_by_name', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
         response = api.fastapi.model.UsersFindByNameResponse.model_validate_json(raw_response.read())
         return response
 
     async def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:
-        raw_response = await self.__impl.post(url='/users/register', json=request.model_dump(by_alias=True, exclude_none=True))
+        raw_response = await self.__impl.post(url='/users/register', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
         response = api.fastapi.model.UsersRegisterResponse.model_validate_json(raw_response.read())
         return response
