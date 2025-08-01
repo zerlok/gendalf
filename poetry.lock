@@ -37,14 +37,14 @@ trio = ["trio (>=0.26.1)"]
 
 [[package]]
 name = "astlab"
-version = "0.2.0"
+version = "0.4.0"
 description = "provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code."
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
 files = [
-    {file = "astlab-0.2.0-py3-none-any.whl", hash = "sha256:78df41f4db6a7a28ada5503a2fe9adfb7ef137da20c9681b6145e7b8bc3ebfc1"},
-    {file = "astlab-0.2.0.tar.gz", hash = "sha256:a0a042b2225babb713ca47e1c77115e60da80878a9f9f4efe02f645df0fe6792"},
+    {file = "astlab-0.4.0-py3-none-any.whl", hash = "sha256:29a84f8e114a0ad98f898c8257e98c43cf6964fe9ce32b98f028eb60efe35400"},
+    {file = "astlab-0.4.0.tar.gz", hash = "sha256:e5ca2f93d2433c9a377dd46c98fc26e2ef466b99e7127e217b1a8a73d6dbfa75"},
 ]
 
 [[package]]
@@ -728,4 +728,4 @@ h11 = ">=0.9.0,<1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "e73c2692c89e37ec4a8e0d90544df635373371fdcc2002a6486b481a85e4bba7"
+content-hash = "28d2b747f7681f3d83054c876a263af470fc6b8cfc2973613bbc1b84901102ee"
