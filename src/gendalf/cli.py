@@ -1,23 +1,63 @@
 import typing as t
-from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 import click
+from astlab.types import ModuleLoader, PackageInfo, TypeAnnotator, TypeInspector, TypeLoader
 
 from gendalf._typing import assert_never
-from gendalf.entrypoint.inspection import inspect_source_dir
+from gendalf.entrypoint.inspection import EntrypointInspector
 from gendalf.entrypoint.printer import Printer
+from gendalf.generator.aiohttp import AiohttpCodeGenerator
 from gendalf.generator.fastapi import FastAPICodeGenerator
-from gendalf.model import GeneratorContext
+from gendalf.generator.model import CodeGeneratorContext
+from gendalf.model import EntrypointInfo
+
+if t.TYPE_CHECKING:
+    from gendalf.generator.abc import CodeGenerator
+
+T = t.TypeVar("T")
 
 
-@dataclass(frozen=True)
 class CLIContext:
-    source: Path
-    ignore_module_on_import_error: bool
+    def __init__(
+        self,
+        base: click.Context,
+        source: Path,
+        ignore_module_on_import_error: bool,
+    ) -> None:
+        self.base = base
+        self.source: t.Final[Path] = source
+        self.ignore_module_on_import_error: t.Final[bool] = ignore_module_on_import_error
 
+    @cached_property
+    def module_loader(self) -> ModuleLoader:
+        return self.with_resource(ModuleLoader.with_sys_path(self.source))
 
-pass_cli_context = click.make_pass_decorator(CLIContext)
+    @cached_property
+    def type_loader(self) -> TypeLoader:
+        return TypeLoader(self.module_loader)
+
+    @cached_property
+    def type_inspector(self) -> TypeInspector:
+        return TypeInspector()
+
+    @cached_property
+    def type_annotator(self) -> TypeAnnotator:
+        return TypeAnnotator(self.module_loader)
+
+    @cached_property
+    def entrypoint_inspector(self) -> EntrypointInspector:
+        return EntrypointInspector(self.module_loader, self.type_inspector)
+
+    def inspect_source(self) -> t.Iterable[EntrypointInfo]:
+        return self.entrypoint_inspector.inspect_source(
+            source=self.source,
+            ignore_module_on_import_error=self.ignore_module_on_import_error,
+        )
+
+    def with_resource(self, cm: t.ContextManager[T]) -> T:
+        return self.base.with_resource(cm)
 
 
 @click.group()
@@ -38,6 +78,7 @@ def cli(
     ignore_module_on_import_error: bool,
 ) -> None:
     context.obj = CLIContext(
+        base=context,
         source=source,
         ignore_module_on_import_error=ignore_module_on_import_error,
     )
@@ -51,7 +92,7 @@ OPT_OUTPUT = click.option(
 )
 
 
-GenKind = t.Literal["fastapi"]
+GenKind = t.Literal["fastapi", "aiohttp"]
 
 
 @cli.command()
@@ -64,7 +105,7 @@ GenKind = t.Literal["fastapi"]
 @click.option(
     "-p",
     "--package",
-    type=str,
+    type=PackageInfo.from_str,
     default=None,
 )
 @click.option(
@@ -77,22 +118,32 @@ def cast(
     context: CLIContext,
     kind: GenKind,
     output: t.Optional[Path],
-    package: t.Optional[str],
+    package: t.Optional[PackageInfo],
     dry_run: bool,
 ) -> None:
     """Generate code for specified python package."""
 
-    gen_context = GeneratorContext(
-        entrypoints=list(
-            inspect_source_dir(context.source, ignore_module_on_import_error=context.ignore_module_on_import_error)
-        ),
-        source=context.source,
+    gen_context = CodeGeneratorContext(
+        entrypoints=list(context.inspect_source()),
         output=output if output is not None else context.source,
         package=package,
     )
 
+    gen: CodeGenerator
     if kind == "fastapi":
-        gen = FastAPICodeGenerator()
+        gen = FastAPICodeGenerator(
+            loader=context.type_loader,
+            inspector=context.type_inspector,
+            annotator=context.type_annotator,
+        )
+
+    elif kind == "aiohttp":
+        gen = AiohttpCodeGenerator(
+            loader=context.type_loader,
+            inspector=context.type_inspector,
+            annotator=context.type_annotator,
+        )
+
     else:
         assert_never(kind)
 
@@ -108,14 +159,14 @@ def cast(
 @cli.command()
 @click.pass_obj
 def show(context: CLIContext) -> None:
-    """Show info about the package"""
+    """Show info about the package."""
 
-    printer = Printer(click.echo)
+    printer = Printer(
+        dest=click.get_text_stream("stdout"),
+        annotator=context.type_annotator,
+    )
 
-    for entrypoint in inspect_source_dir(
-        context.source,
-        ignore_module_on_import_error=context.ignore_module_on_import_error,
-    ):
+    for entrypoint in context.inspect_source():
         entrypoint.accept(printer)
 
 

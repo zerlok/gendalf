@@ -41,6 +41,14 @@ class Option(t.Generic[T]):
     def __repr__(self) -> str:
         return f"Option({self.__value!r})" if not isinstance(self.__value, _NotSet) else "Option()"
 
+    @property
+    def is_set(self) -> bool:
+        return not self.is_empty
+
+    @property
+    def is_empty(self) -> bool:
+        return self.__value is _NOT_SET
+
     @t.overload
     def value(self) -> t.Optional[T]: ...
 

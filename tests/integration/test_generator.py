@@ -1,0 +1,149 @@
+import typing as t
+from pathlib import Path
+
+import pytest
+from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
+
+from gendalf.cli import GenKind
+from gendalf.entrypoint.inspection import EntrypointInspector
+from gendalf.generator.abc import CodeGenerator
+from gendalf.generator.aiohttp import AiohttpCodeGenerator
+from gendalf.generator.fastapi import FastAPICodeGenerator
+from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
+
+
+@pytest.mark.parametrize(
+    ("case_dir", "input_rglob"),
+    [
+        pytest.param(Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
+    ],
+)
+@pytest.mark.parametrize("code_generator_kind", t.get_args(GenKind))
+def test_code_generator_returns_expected_result(
+    code_generator: CodeGenerator,
+    code_generator_context: CodeGeneratorContext,
+    expected_code_generator_result: CodeGeneratorResult,
+) -> None:
+    assert sort_files(code_generator.generate(code_generator_context)) == expected_code_generator_result
+
+
+@pytest.fixture
+def code_generator(
+    code_generator_kind: str,
+    type_loader: TypeLoader,
+    type_inspector: TypeInspector,
+    type_annotator: TypeAnnotator,
+) -> CodeGenerator:
+    if code_generator_kind == "fastapi":
+        return FastAPICodeGenerator(type_loader, type_inspector, type_annotator)
+
+    elif code_generator_kind == "aiohttp":
+        return AiohttpCodeGenerator(type_loader, type_inspector, type_annotator)
+
+    else:
+        msg = "unknown code generator kind"
+        raise ValueError(msg, code_generator_kind)
+
+
+@pytest.fixture
+def module_loader(source_dir: Path) -> t.Iterator[ModuleLoader]:
+    assert source_dir.exists()
+
+    with ModuleLoader.with_sys_path(source_dir) as loader:
+        yield loader
+
+
+@pytest.fixture
+def type_loader(module_loader: ModuleLoader) -> TypeLoader:
+    return TypeLoader(module_loader)
+
+
+@pytest.fixture
+def type_inspector() -> TypeInspector:
+    return TypeInspector()
+
+
+@pytest.fixture
+def type_annotator(module_loader: ModuleLoader) -> TypeAnnotator:
+    return TypeAnnotator(module_loader)
+
+
+@pytest.fixture
+def entrypoint_inspector(module_loader: ModuleLoader, type_inspector: TypeInspector) -> EntrypointInspector:
+    return EntrypointInspector(module_loader, type_inspector)
+
+
+@pytest.fixture
+def source_dir(case_dir: Path) -> Path:
+    return case_dir / "src"
+
+
+@pytest.fixture
+def input_rglob() -> t.Optional[str]:
+    return None
+
+
+@pytest.fixture
+def input_paths(case_dir: Path, input_rglob: t.Optional[str]) -> t.Sequence[Path]:
+    assert case_dir.is_dir()
+    return list(case_dir.rglob(input_rglob if input_rglob is not None else "src/**/*.py"))
+
+
+@pytest.fixture
+def code_generator_context(
+    input_paths: t.Sequence[Path],
+    output_dir: Path,
+    entrypoint_inspector: EntrypointInspector,
+) -> CodeGeneratorContext:
+    return CodeGeneratorContext(
+        entrypoints=list(entrypoint_inspector.inspect_paths(input_paths)),
+        output=output_dir,
+        package=None,
+    )
+
+
+@pytest.fixture
+def output_dir(case_dir: Path) -> Path:
+    return case_dir / "generated"
+
+
+@pytest.fixture
+def output_rglob() -> t.Optional[str]:
+    return None
+
+
+@pytest.fixture
+def expected_output_paths(
+    code_generator_kind: str,
+    output_dir: Path,
+    output_rglob: t.Optional[str],
+) -> t.Sequence[Path]:
+    paths = [output_dir / "api" / "__init__.py"]
+    paths.extend(
+        (output_dir / "api").rglob(output_rglob if output_rglob is not None else f"{code_generator_kind}/**/*.py")
+    )
+
+    return paths
+
+
+@pytest.fixture
+def expected_code_generator_result(expected_output_paths: t.Sequence[Path]) -> CodeGeneratorResult:
+    return sort_files(
+        CodeGeneratorResult(
+            files=[
+                CodeGeneratorResult.File(
+                    path=path,
+                    content=path.read_text(),
+                )
+                for path in expected_output_paths
+            ],
+        ),
+    )
+
+
+def sort_files(result: CodeGeneratorResult) -> CodeGeneratorResult:
+    return CodeGeneratorResult(files=sorted(result.files, key=_get_file_key))
+
+
+def _get_file_key(file: CodeGeneratorResult.File) -> Path:
+    return file.path

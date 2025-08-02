@@ -61,23 +61,23 @@ server side an additional code is required: implement request deserialization fr
 
 ### FastAPI & HTTPX
 
-Run with `gendalf gen src fastapi`. It supports:
+Run with `gendalf src cast fastapi`. It supports:
 
 - request-response (POST method, request & response in HTTP body in JSON format)
 - duplex streaming (WebSocket, requests & responses are in WS frames in JSON format)
 
 #### What’s Generated
 
-* **api/models.py**: Pydantic models for requests and responses that mirror the domain objects.
-* **api/client.py**: Client classes with async methods, ready to make API calls with appropriate typings for request and
+* `src/api/models.py`: Pydantic models for requests and responses that mirror the domain objects. Used by `client.py` and `server.py`
+* `src/api/client.py`: Client classes with async methods, ready to make API calls with appropriate typings for request and
   response data.
-* **api/server.py**: Server handler classes, which include data serialization and domain logic invocation.
+* `src/api/server.py`: Server handler classes, which include data serialization and domain logic invocation.
 
 The generated code is complete, with no need for additional modifications.
 
 #### Examples
 
-- [my greeter service](examples/my_greeter)
+- [my greeter](examples/my_greeter)
 
 ### gRPC (not supported yet)
 

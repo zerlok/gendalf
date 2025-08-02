@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "gendalf"
-version = "0.1.0"
-description = "You shall pass... your domain to transport! A Python codegen tool for transport layers in DDD, supporting most popular transport / API frameworks."
+version = "0.2.0"
+description = "A Python codegen tool for transport layers in DDD, supporting most popular transport / API frameworks."
 authors = ["zerlok <danil.troshnev@gmail.com>"]
 readme = "README.md"
 license = "MIT"
@@ -26,20 +26,26 @@ gendalf = "gendalf.cli:cli"
 
 [tool.poetry.dependencies]
 python = "^3.9"
-click = "^8.1.8"
-astlab = "^0.2.0"
+click = { version = "^8.1.8", optional = true }
+astlab = "^0.4.2"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.13.0"
 pytest = "^8.3.3"
 pytest-cov = "^6.0.0"
-ruff = ">=0.7.4,<0.12.0"
+ruff = ">=0.7.4,<1"
+pytest-asyncio = "^1.1.0"
 
 [tool.poetry.group.examples.dependencies]
 httpx = "^0.28.1"
 uvicorn = "^0.34.0"
 fastapi = "^0.115.7"
 httpx-ws = "^0.7.1"
+aiohttp = "^3.12.14"
+
+[tool.poetry.extras]
+cli = ["click"]
+examples = ["uvicorn", "fastapi", "httpx-ws", "aiohttp"]
 
 [build-system]
 requires = ["poetry-core"]
@@ -48,7 +54,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 target-version = "py39"
-include = ["src/**/*.py", "tests/**/*.py"]
+extend-exclude = ["examples/**/generated"]
 force-exclude = true
 line-length = 120
 output-format = "pylint"
@@ -66,6 +72,8 @@ ignore = [
     "RET505", # clashes with mypy exhaustiveness check
     "S101", # allow asserts for tests checks and mypy help
     # TODO: stop ignore this rule
+    "A005", # waiting for fix: https://github.com/astral-sh/ruff/issues/15399#event-16176023176
+    # TODO: stop ignore this rule
     "UP007", # because of 3.9 support
     # TODO: stop ignore this rule
     "SIM117", # because ast builder 2.0 uses with statement to build contextual scope statemetns
@@ -74,6 +82,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # CLI is built with `click` framework
+"examples/**" = [
+    "INP001", # allow implicit namespace packages in examples dir.
+    "T201", # allow `print` in examples.
+]
 "src/gendalf/cli.py" = [
     "FBT001", # CLI commands can use non keyword flag options
     "PLR0913", # CLI commands can use a lots of arguments and options
@@ -84,7 +96,9 @@ ignore = [
 
 
 [tool.mypy]
-files = ["src", "tests"]
+mypy_path = ["src", "examples/my_greeter/generated", "examples/my_greeter/src"]
+files = ["examples/my_greeter", "src", "tests"]
+explicit_package_bases = true
 strict = true
 disallow_any_unimported = true
 disallow_any_expr = true
@@ -123,7 +137,7 @@ enable_error_code = [
 module = [
     "gendalf.cli",
     "gendalf.entrypoint.inspection",
-    "gendalf.generator.model.type_inspection.visitor.trait",
+    "gendalf.generator.dto.type_inspection.visitor.trait",
 ]
 disallow_any_expr = false
 
@@ -134,11 +148,49 @@ disallow_any_expr = false
 disallow_any_explicit = false
 warn_return_any = false
 
+# NOTE: simplify typings, e.g. avoid `if TYPE_CHECKING` statements to keep code more clear.
+[[tool.mypy.overrides]]
+module = [
+    "my_service.*",
+]
+disable_error_code = [
+    "explicit-override",
+]
+
+# NOTE: httpx, fastapi, aiohttp may return `Any`
+[[tool.mypy.overrides]]
+module = [
+    "examples.my_greeter.client",
+    "api.fastapi.*",
+    "api.aiohttp.*",
+]
+disallow_any_expr = false
+disallow_any_explicit = false
+
+# NOTE: pydantic models are built on top of `BaseModel` which is always contains `Any`
+[[tool.mypy.overrides]]
+module = [
+    "api.fastapi.model",
+    "api.aiohttp.model",
+]
+disallow_any_decorated = false
+
+# NOTE: httpx_ws has mypy issues
+[[tool.mypy.overrides]]
+module = [
+    "api.fastapi.client",
+]
+disable_error_code = ["var-annotated"]
+
+# NOTE: aiohttp client has mypy issues
+[[tool.mypy.overrides]]
+module = [
+    "api.aiohttp.client",
+]
+disable_error_code = ["unreachable"]
 
 [tool.pytest.ini_options]
-pythonpath = [
-    "src",
-]
+pythonpath = ["src", "examples/my_greeter/generated", "examples/my_greeter/src"]
 addopts = [
     "--cov=src",
     "--cov-report=term-missing",
@@ -146,6 +198,8 @@ addopts = [
 testpaths = [
     "tests",
 ]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 branch = true
