@@ -78,6 +78,7 @@ ignore = [
     # TODO: stop ignore this rule
     "SIM117", # because ast builder 2.0 uses with statement to build contextual scope statemetns
     "ARG002", # because `ruff` can't handle `override` from internal `gendalf._typing`.
+    "UP045", # because of 3.9 support
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -85,6 +86,7 @@ ignore = [
 "examples/**" = [
     "INP001", # allow implicit namespace packages in examples dir.
     "T201", # allow `print` in examples.
+    "PLC0415", # allow imports in all places.
 ]
 "src/gendalf/cli.py" = [
     "FBT001", # CLI commands can use non keyword flag options

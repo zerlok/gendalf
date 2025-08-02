@@ -142,12 +142,9 @@ class PydanticDtoMapper(DtoMapper):
     def __extract_dependencies(self, options: ProcessedDomainTypeInfo) -> t.Sequence[TypeInfo]:
         return options.dependencies
 
-    def __process_domain_type(self, info: TypeInfo) -> ProcessedDomainTypeInfo:
+    # NOTE: ruff can't work with custom assert_never in this function
+    def __process_domain_type(self, info: TypeInfo) -> ProcessedDomainTypeInfo:  # noqa: RET503
         rtt = self.__loader.load(info)
-
-        if isinstance(info, ModuleInfo):
-            msg = "module can't be a domain type"
-            raise TypeError(msg, info)
 
         if isinstance(info, NamedTypeInfo):
             if rtt in {None, Ellipsis} or (isinstance(rtt, type) and issubclass(rtt, self.__scalar_types)):  # type: ignore[misc]
@@ -170,9 +167,12 @@ class PydanticDtoMapper(DtoMapper):
         elif isinstance(info, LiteralTypeInfo):
             return self.__process_scalar(rtt, info)
 
+        elif isinstance(info, ModuleInfo):
+            msg = "module can't be a domain type"
+            raise TypeError(msg, info)
+
         else:
-            # NOTE: ruff can't work with custom assert_never
-            assert_never(info)  # noqa: RET503
+            assert_never(info)
 
     def __process_scalar(self, _: RuntimeType, info: TypeInfo) -> ProcessedDomainTypeInfo:
         def create(_: ScopeASTBuilder) -> DomainTypeMapping:
