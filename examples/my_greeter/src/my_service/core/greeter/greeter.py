@@ -1,3 +1,4 @@
+import asyncio
 import typing as t
 
 from gendalf.entrypoint.decorator import entrypoint
@@ -28,14 +29,17 @@ class UserManager:
     def __init__(self) -> None:
         self.__users = set[UserInfo]()
 
-    def register(self, name: str) -> UserInfo:
+    async def register(self, name: str) -> UserInfo:
         """Register user with provided name."""
         user = UserInfo(id_=len(self.__users) + 1, name=name)
+
+        await asyncio.sleep(0.1)  # simulate DB call
+
         self.__users.add(user)
 
         return user
 
-    def find_by_name(self, name: str) -> t.Optional[UserInfo]:
+    async def find_by_name(self, name: str) -> t.Optional[UserInfo]:
         for user in self.__users:
             if user.name == name:
                 return user

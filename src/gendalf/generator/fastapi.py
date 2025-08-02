@@ -321,8 +321,12 @@ class FastAPICodeGenerator(CodeGenerator):
                 source=scope.attr("request"),
             )
 
-            impl_call = method_def.self_attr("impl", method.name).call(
-                kwargs={param.name: scope.attr(input_name) for input_name, param in input_params.items()},
+            impl_call = (
+                method_def.self_attr("impl", method.name)
+                .call(
+                    kwargs={param.name: scope.attr(input_name) for input_name, param in input_params.items()},
+                )
+                .await_(is_awaited=method.is_async)
             )
 
             if method.returns is not None and response_model is not None:

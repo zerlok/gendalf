@@ -46,15 +46,15 @@ class UsersHandler:
     def __init__(self, impl: my_service.core.greeter.greeter.UserManager) -> None:
         self.__impl = impl
 
-    def find_by_name(self, request: api.fastapi.model.UsersFindByNameRequest) -> api.fastapi.model.UsersFindByNameResponse:
+    async def find_by_name(self, request: api.fastapi.model.UsersFindByNameRequest) -> api.fastapi.model.UsersFindByNameResponse:
         input_name = request.name
-        output = self.__impl.find_by_name(name=input_name)
+        output = await self.__impl.find_by_name(name=input_name)
         response = api.fastapi.model.UsersFindByNameResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name) if output is not None else None)
         return response
 
-    def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:
+    async def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:
         input_name = request.name
-        output = self.__impl.register(name=input_name)
+        output = await self.__impl.register(name=input_name)
         response = api.fastapi.model.UsersRegisterResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name))
         return response
 
