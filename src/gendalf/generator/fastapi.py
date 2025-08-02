@@ -563,8 +563,8 @@ class FastAPICodeGenerator(CodeGenerator):
         url: Expr,
     ) -> None:
         with scope.func_def("send_requests").arg("ws", self.__ws_async_session).returns(scope.none()).async_():
-            with scope.try_stmt() as try_stmt:
-                with try_stmt.body():
+            with scope.try_stmt() as try_receive_once:
+                with try_receive_once.body():
                     with scope.for_stmt("request", scope.attr("requests")).async_().body():
                         scope.stmt(
                             scope.attr("ws", "send_text")
@@ -573,7 +573,7 @@ class FastAPICodeGenerator(CodeGenerator):
                             .await_(),
                         )
 
-                with try_stmt.finally_():
+                with try_receive_once.finally_():
                     scope.stmt(scope.attr("ws", "close").call().await_())
 
         with (
@@ -590,32 +590,37 @@ class FastAPICodeGenerator(CodeGenerator):
                 .arg(scope.attr("send_requests").call().arg(scope.attr("ws"))),
             )
 
-            with scope.while_stmt(scope.not_op(scope.attr("sender", "done").call())).body():
-                with scope.try_stmt() as try_stmt:
-                    with try_stmt.body():
-                        scope.assign_stmt(
-                            target="raw_response",
-                            value=scope.attr("ws", "receive_text")
-                            .call()
-                            .kwarg("timeout", scope.attr("receive_timeout"))
-                            .await_(),
-                        )
+            with scope.try_stmt() as try_stream:
+                with try_stream.body():
+                    with scope.while_stmt(scope.not_op(scope.attr("sender", "done").call())).body():
+                        with scope.try_stmt() as try_receive_once:
+                            with try_receive_once.body():
+                                scope.assign_stmt(
+                                    target="raw_response",
+                                    value=scope.attr("ws", "receive_text")
+                                    .call()
+                                    .kwarg("timeout", scope.attr("receive_timeout"))
+                                    .await_(),
+                                )
 
-                    with try_stmt.except_(*self.__ws_receiver_no_data_errors):
-                        scope.continue_stmt()
+                            with try_receive_once.except_(*self.__ws_receiver_no_data_errors):
+                                scope.continue_stmt()
 
-                    with try_stmt.except_(*self.__ws_receiver_network_errors, name="err"):
-                        with scope.if_stmt(scope.attr("sender", "done").call()).body():
-                            scope.break_stmt()
+                            with try_receive_once.except_(*self.__ws_receiver_network_errors, name="err"):
+                                with scope.if_stmt(scope.attr("sender", "done").call()).body():
+                                    scope.break_stmt()
 
-                        scope.raise_stmt(scope.attr("err"))
+                                scope.raise_stmt(scope.attr("err"))
 
-                    with try_stmt.else_():
-                        scope.assign_stmt(
-                            target="response",
-                            value=response_model.build_load_json_expr(scope, scope.attr("raw_response")),
-                        )
-                        scope.yield_stmt(scope.attr("response"))
+                            with try_receive_once.else_():
+                                scope.assign_stmt(
+                                    target="response",
+                                    value=response_model.build_load_json_expr(scope, scope.attr("raw_response")),
+                                )
+                                scope.yield_stmt(scope.attr("response"))
+
+                with try_stream.finally_():
+                    scope.stmt(scope.attr("sender").await_())
 
     def __build_client_method_stream_stream_sync(
         self,

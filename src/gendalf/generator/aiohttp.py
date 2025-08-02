@@ -597,47 +597,53 @@ class AiohttpCodeGenerator(CodeGenerator):
                 .enter(scope.call(self.__asyncio_task_group), "tasks")
                 .body()
             ):
-                scope.stmt(
-                    scope.attr("tasks", "create_task")
+                scope.assign_stmt(
+                    target="sender",
+                    value=scope.attr("tasks", "create_task")
                     .call()
                     .arg(scope.attr("send_requests").call().arg(scope.attr("ws"))),
                 )
-                with scope.while_stmt(scope.not_op(scope.attr("ws", "closed"))).body():
-                    scope.assign_stmt(
-                        target="msg",
-                        value=scope.attr("ws", "receive").call().await_(),
-                    )
+                with scope.try_stmt() as try_stream:
+                    with try_stream.body():
+                        with scope.while_stmt(scope.not_op(scope.attr("ws", "closed"))).body():
+                            scope.assign_stmt(
+                                target="msg",
+                                value=scope.attr("ws", "receive").call().await_(),
+                            )
 
-                    with scope.if_stmt(scope.attr("ws", "closed")).body():
-                        scope.break_stmt()
+                            with scope.if_stmt(scope.attr("ws", "closed")).body():
+                                scope.break_stmt()
 
-                    with scope.if_stmt(
-                        scope.compare_in_expr(
-                            scope.attr("msg", "type"),
-                            scope.set_expr(
-                                [
-                                    scope.attr(self.__aiohttp_ws_msg_type, "CLOSING"),
-                                    scope.attr(self.__aiohttp_ws_msg_type, "CLOSED"),
-                                    scope.attr(self.__aiohttp_ws_msg_type, "CLOSE"),
-                                ]
-                            ),
-                        )
-                    ).body():
-                        scope.continue_stmt()
+                            with scope.if_stmt(
+                                scope.compare_in_expr(
+                                    scope.attr("msg", "type"),
+                                    scope.set_expr(
+                                        [
+                                            scope.attr(self.__aiohttp_ws_msg_type, "CLOSING"),
+                                            scope.attr(self.__aiohttp_ws_msg_type, "CLOSED"),
+                                            scope.attr(self.__aiohttp_ws_msg_type, "CLOSE"),
+                                        ]
+                                    ),
+                                )
+                            ).body():
+                                scope.continue_stmt()
 
-                    with scope.if_stmt(
-                        scope.compare_is_expr(
-                            scope.attr("msg", "type"),
-                            scope.attr(self.__aiohttp_ws_msg_type, "ERROR"),
-                        )
-                    ).body():
-                        scope.raise_stmt(scope.attr("msg", "data"))
+                            with scope.if_stmt(
+                                scope.compare_is_expr(
+                                    scope.attr("msg", "type"),
+                                    scope.attr(self.__aiohttp_ws_msg_type, "ERROR"),
+                                )
+                            ).body():
+                                scope.raise_stmt(scope.attr("msg", "data"))
 
-                    scope.assign_stmt(
-                        target="response",
-                        value=response_model.build_load_json_expr(scope, scope.attr("msg", "data")),
-                    )
-                    scope.yield_stmt(scope.attr("response"))
+                            scope.assign_stmt(
+                                target="response",
+                                value=response_model.build_load_json_expr(scope, scope.attr("msg", "data")),
+                            )
+                            scope.yield_stmt(scope.attr("response"))
+
+                    with try_stream.finally_():
+                        scope.stmt(scope.attr("sender").await_())
 
     @cached_property
     def __functools_partial(self) -> TypeInfo:

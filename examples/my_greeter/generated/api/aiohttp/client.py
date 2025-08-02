@@ -26,17 +26,20 @@ class GreeterClient:
             finally:
                 await ws.close()
         async with self.__session.ws_connect(url='/greeter/stream_greetings') as ws, asyncio.TaskGroup() as tasks:
-            tasks.create_task(send_requests(ws))
-            while not ws.closed:
-                msg = await ws.receive()
-                if ws.closed:
-                    break
-                if msg.type in {aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE}:
-                    continue
-                if msg.type is aiohttp.WSMsgType.ERROR:
-                    raise msg.data
-                response = api.aiohttp.model.GreeterStreamGreetingsResponse.model_validate_json(msg.data)
-                yield response
+            sender = tasks.create_task(send_requests(ws))
+            try:
+                while not ws.closed:
+                    msg = await ws.receive()
+                    if ws.closed:
+                        break
+                    if msg.type in {aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE}:
+                        continue
+                    if msg.type is aiohttp.WSMsgType.ERROR:
+                        raise msg.data
+                    response = api.aiohttp.model.GreeterStreamGreetingsResponse.model_validate_json(msg.data)
+                    yield response
+            finally:
+                await sender
 
 class UsersClient:
 

@@ -27,7 +27,7 @@ gendalf = "gendalf.cli:cli"
 [tool.poetry.dependencies]
 python = "^3.9"
 click = { version = "^8.1.8", optional = true }
-astlab = "^0.4.1"
+astlab = "^0.4.2"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.13.0"
@@ -96,7 +96,9 @@ ignore = [
 
 
 [tool.mypy]
-files = ["src", "tests"]
+mypy_path = ["src", "examples/my_greeter/generated", "examples/my_greeter/src"]
+files = ["examples/my_greeter", "src", "tests"]
+explicit_package_bases = true
 strict = true
 disallow_any_unimported = true
 disallow_any_expr = true
@@ -146,6 +148,46 @@ disallow_any_expr = false
 disallow_any_explicit = false
 warn_return_any = false
 
+# NOTE: simplify typings, e.g. avoid `if TYPE_CHECKING` statements to keep code more clear.
+[[tool.mypy.overrides]]
+module = [
+    "my_service.*",
+]
+disable_error_code = [
+    "explicit-override",
+]
+
+# NOTE: httpx, fastapi, aiohttp may return `Any`
+[[tool.mypy.overrides]]
+module = [
+    "examples.my_greeter.client",
+    "api.fastapi.*",
+    "api.aiohttp.*",
+]
+disallow_any_expr = false
+disallow_any_explicit = false
+
+# NOTE: pydantic models are built on top of `BaseModel` which is always contains `Any`
+[[tool.mypy.overrides]]
+module = [
+    "api.fastapi.model",
+    "api.aiohttp.model",
+]
+disallow_any_decorated = false
+
+# NOTE: httpx_ws has mypy issues
+[[tool.mypy.overrides]]
+module = [
+    "api.fastapi.client",
+]
+disable_error_code = ["var-annotated"]
+
+# NOTE: aiohttp client has mypy issues
+[[tool.mypy.overrides]]
+module = [
+    "api.aiohttp.client",
+]
+disable_error_code = ["unreachable"]
 
 [tool.pytest.ini_options]
 pythonpath = [

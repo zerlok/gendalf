@@ -70,18 +70,21 @@ class GreeterAsyncClient:
                 await ws.close()
         async with asyncio.TaskGroup() as tasks, httpx_ws.aconnect_ws(url='/greeter/stream_greetings', client=self.__impl) as ws:
             sender = tasks.create_task(send_requests(ws))
-            while not sender.done():
-                try:
-                    raw_response = await ws.receive_text(timeout=receive_timeout)
-                except queue.Empty:
-                    continue
-                except (httpx_ws.WebSocketNetworkError, httpx_ws.WebSocketDisconnect) as err:
-                    if sender.done():
-                        break
-                    raise err
-                else:
-                    response = api.fastapi.model.GreeterStreamGreetingsResponse.model_validate_json(raw_response)
-                    yield response
+            try:
+                while not sender.done():
+                    try:
+                        raw_response = await ws.receive_text(timeout=receive_timeout)
+                    except queue.Empty:
+                        continue
+                    except (httpx_ws.WebSocketNetworkError, httpx_ws.WebSocketDisconnect) as err:
+                        if sender.done():
+                            break
+                        raise err
+                    else:
+                        response = api.fastapi.model.GreeterStreamGreetingsResponse.model_validate_json(raw_response)
+                        yield response
+            finally:
+                await sender
 
 class UsersClient:
 
