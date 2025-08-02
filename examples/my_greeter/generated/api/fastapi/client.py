@@ -68,8 +68,8 @@ class GreeterAsyncClient:
                     await ws.send_text(request.model_dump_json(by_alias=True, exclude_none=True))
             finally:
                 await ws.close()
-        async with asyncio.TaskGroup() as tasks, httpx_ws.aconnect_ws(url='/greeter/stream_greetings', client=self.__impl) as ws:
-            sender = tasks.create_task(send_requests(ws))
+        async with httpx_ws.aconnect_ws(url='/greeter/stream_greetings', client=self.__impl) as ws:
+            sender = asyncio.create_task(send_requests(ws))
             try:
                 while not sender.done():
                     try:

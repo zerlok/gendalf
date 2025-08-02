@@ -579,15 +579,14 @@ class FastAPICodeGenerator(CodeGenerator):
         with (
             scope.with_stmt()
             .async_()
-            .enter(scope.call(self.__asyncio_task_group), "tasks")
             .enter(scope.call(self.__ws_async_connect).kwarg("url", url).kwarg("client", scope.self_attr("impl")), "ws")
             .body()
         ):
             scope.assign_stmt(
                 target="sender",
-                value=scope.attr("tasks", "create_task")
-                .call()
-                .arg(scope.attr("send_requests").call().arg(scope.attr("ws"))),
+                value=scope.call(self.__asyncio_create_task).arg(
+                    scope.attr("send_requests").call().arg(scope.attr("ws"))
+                ),
             )
 
             with scope.try_stmt() as try_stream:
@@ -691,8 +690,8 @@ class FastAPICodeGenerator(CodeGenerator):
         return NamedTypeInfo.build("threading", "Thread")
 
     @cached_property
-    def __asyncio_task_group(self) -> TypeInfo:
-        return NamedTypeInfo.build("asyncio", "TaskGroup")
+    def __asyncio_create_task(self) -> TypeInfo:
+        return NamedTypeInfo.build("asyncio", "create_task")
 
     @cached_property
     def __ws_sync_connect(self) -> NamedTypeInfo:

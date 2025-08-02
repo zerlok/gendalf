@@ -12,8 +12,9 @@ from uvicorn import Config, Server
 
 from examples.my_greeter.client import run_client_aiohttp, run_client_httpx_async, run_client_httpx_sync
 from examples.my_greeter.server import create_aiohttp, create_fastapi
+from gendalf._typing import ParamSpec
 
-P = t.ParamSpec("P")
+P = ParamSpec("P")
 V_co = t.TypeVar("V_co", covariant=True)
 
 

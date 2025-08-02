@@ -473,7 +473,7 @@ class AiohttpCodeGenerator(CodeGenerator):
                     )
 
                 else:
-                    t.assert_never(method)
+                    assert_never(method)
 
             scope.stmt(
                 scope.attr("app", "add_subapp")
@@ -594,14 +594,13 @@ class AiohttpCodeGenerator(CodeGenerator):
                     .kwarg("url", scope.const(f"/{camel2snake(entrypoint.name)}/{method.name}")),
                     name="ws",
                 )
-                .enter(scope.call(self.__asyncio_task_group), "tasks")
                 .body()
             ):
                 scope.assign_stmt(
                     target="sender",
-                    value=scope.attr("tasks", "create_task")
-                    .call()
-                    .arg(scope.attr("send_requests").call().arg(scope.attr("ws"))),
+                    value=scope.call(self.__asyncio_create_task).arg(
+                        scope.attr("send_requests").call().arg(scope.attr("ws"))
+                    ),
                 )
                 with scope.try_stmt() as try_stream:
                     with try_stream.body():
@@ -654,8 +653,8 @@ class AiohttpCodeGenerator(CodeGenerator):
         return NamedTypeInfo.build(ModuleInfo.build("concurrent", "futures"), "Executor")
 
     @cached_property
-    def __asyncio_task_group(self) -> TypeInfo:
-        return NamedTypeInfo.build("asyncio", "TaskGroup")
+    def __asyncio_create_task(self) -> TypeInfo:
+        return NamedTypeInfo.build("asyncio", "create_task")
 
     @cached_property
     def __asyncio_get_running_loop(self) -> TypeInfo:

@@ -25,8 +25,8 @@ class GreeterClient:
                     await ws.send_json(request.model_dump(mode='json', by_alias=True, exclude_none=True))
             finally:
                 await ws.close()
-        async with self.__session.ws_connect(url='/greeter/stream_greetings') as ws, asyncio.TaskGroup() as tasks:
-            sender = tasks.create_task(send_requests(ws))
+        async with self.__session.ws_connect(url='/greeter/stream_greetings') as ws:
+            sender = asyncio.create_task(send_requests(ws))
             try:
                 while not ws.closed:
                     msg = await ws.receive()
