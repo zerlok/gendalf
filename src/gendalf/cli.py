@@ -8,9 +8,13 @@ from astlab.types import ModuleLoader, PackageInfo, TypeAnnotator, TypeInspector
 from gendalf._typing import assert_never
 from gendalf.entrypoint.inspection import EntrypointInspector
 from gendalf.entrypoint.printer import Printer
+from gendalf.generator.aiohttp import AiohttpCodeGenerator
 from gendalf.generator.fastapi import FastAPICodeGenerator
 from gendalf.generator.model import CodeGeneratorContext
 from gendalf.model import EntrypointInfo
+
+if t.TYPE_CHECKING:
+    from gendalf.generator.abc import CodeGenerator
 
 T = t.TypeVar("T")
 
@@ -88,7 +92,7 @@ OPT_OUTPUT = click.option(
 )
 
 
-GenKind = t.Literal["fastapi"]
+GenKind = t.Literal["fastapi", "aiohttp"]
 
 
 @cli.command()
@@ -125,8 +129,16 @@ def cast(
         package=package,
     )
 
+    gen: CodeGenerator
     if kind == "fastapi":
         gen = FastAPICodeGenerator(
+            loader=context.type_loader,
+            inspector=context.type_inspector,
+            annotator=context.type_annotator,
+        )
+
+    elif kind == "aiohttp":
+        gen = AiohttpCodeGenerator(
             loader=context.type_loader,
             inspector=context.type_inspector,
             annotator=context.type_annotator,

@@ -103,8 +103,12 @@ class PydanticDtoMapper(DtoMapper):
         else:
             raise RuntimeError(info, name, fields)
 
-    def mode(self, value: PydanticMode) -> DuplexDtoMapper:
-        return PydanticDuplexDtoMapper(self.__domain_to_dto, value)
+    def mode(self, value: t.Optional[PydanticMode]) -> DuplexDtoMapper:
+        return (
+            PydanticDuplexDtoMapper(self.__domain_to_dto, value)
+            if value is not None and value != self.__mapper.mode
+            else self.__mapper
+        )
 
     @override
     def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
@@ -383,6 +387,10 @@ class PydanticDuplexDtoMapper(DuplexDtoMapper):
     def __init__(self, registry: t.Mapping[TypeInfo, DomainTypeMapping], mode: PydanticMode) -> None:
         self.__registry = registry
         self.__mode = mode
+
+    @property
+    def mode(self) -> PydanticMode:
+        return self.__mode
 
     @override
     def build_dto_decode_expr(

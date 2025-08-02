@@ -8,10 +8,10 @@ from astlab.builder import (
     AttrASTBuilder,
     ClassScopeASTBuilder,
     ClassTypeRefBuilder,
+    MethodScopeASTBuilder,
     ModuleASTBuilder,
     PackageASTBuilder,
     ScopeASTBuilder,
-    WithStatementASTBuilder,
 )
 from astlab.types import NamedTypeInfo, TypeAnnotator, TypeInfo, TypeInspector, TypeLoader
 
@@ -24,11 +24,7 @@ from gendalf.string_case import camel2snake, snake2camel
 
 
 class FastAPIModel(TypeDefinitionBuilder):
-    def __init__(
-        self,
-        mapper: PydanticDtoMapper,
-        ref: ClassTypeRefBuilder,
-    ) -> None:
+    def __init__(self, mapper: PydanticDtoMapper, ref: ClassTypeRefBuilder) -> None:
         self.__mapper = mapper
         self.__ref = ref
 
@@ -471,6 +467,7 @@ class FastAPICodeGenerator(CodeGenerator):
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: MethodInfo,
+        *,
         is_async: bool,
     ) -> None:
         if isinstance(method, UnaryUnaryMethodInfo):
@@ -488,6 +485,7 @@ class FastAPICodeGenerator(CodeGenerator):
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: UnaryUnaryMethodInfo,
+        *,
         is_async: bool,
     ) -> None:
         request_model = registry.get_request(entrypoint, method)
@@ -524,11 +522,9 @@ class FastAPICodeGenerator(CodeGenerator):
         registry: FastAPIModelRegistry,
         entrypoint: EntrypointInfo,
         method: StreamStreamMethodInfo,
+        *,
         is_async: bool,
     ) -> None:
-        ws_connect_ref = NamedTypeInfo.build("httpx_ws", "aconnect_ws" if is_async else "connect_ws")
-        ws_session_ref = NamedTypeInfo.build("httpx_ws", "AsyncWebSocketSession" if is_async else "WebSocketSession")
-
         request_model = registry.get_request(entrypoint, method)
         response_model = registry.get_response(entrypoint, method)
 
@@ -543,55 +539,46 @@ class FastAPICodeGenerator(CodeGenerator):
         with (
             scope.method_def(method.name)
             .arg("requests", request_model.ref().iterator(is_async=is_async))
+            .arg("receive_timeout", scope.type_ref(float).optional(), scope.const(None))
             .returns(response_model.ref().iterator(is_async=is_async))
             .async_(is_async=is_async) as method_def
         ):
-            with (
-                scope.func_def("send_requests")
-                .arg("ws", ws_session_ref)
-                .returns(scope.none())
-                .async_(is_async=is_async)
-            ):
-                with scope.try_stmt() as try_stmt:
-                    with try_stmt.body():
-                        with scope.for_stmt("request", scope.attr("requests")).async_(is_async=is_async).body():
-                            scope.stmt(
-                                scope.attr("ws", "send_text")
-                                .call()
-                                .arg(request_model.build_dump_json_expr(scope, scope.attr("request")))
-                                .await_(is_awaited=is_async),
-                            )
+            url = scope.const(f"/{camel2snake(entrypoint.name)}/{method.name}")
 
-                    with try_stmt.finally_():
-                        scope.stmt(scope.attr("ws", "close").call().await_(is_awaited=is_async))
+            if is_async:
+                self.__build_client_method_stream_stream_async(method_def, request_model, response_model, url)
 
-            with (
-                self.__build_client_method_stream_stream_resources(scope, is_async)
-                .enter(
-                    cm=scope.call(ws_connect_ref)
-                    .kwarg("url", scope.const(f"/{camel2snake(entrypoint.name)}/{method.name}"))
-                    .kwarg("client", method_def.self_attr("impl")),
-                    name="ws",
-                )
-                .body()
-            ):
-                self.__build_client_method_stream_stream_sender(scope, is_async)
-                self.__build_client_method_stream_stream_receiver(scope, response_model, is_async)
+            else:
+                self.__build_client_method_stream_stream_sync(method_def, request_model, response_model, url)
 
-    def __build_client_method_stream_stream_resources(
+    def __build_client_method_stream_stream_async(
         self,
-        scope: ScopeASTBuilder,
-        is_async: bool,
-    ) -> WithStatementASTBuilder:
-        with_stmt = scope.with_stmt()
+        scope: MethodScopeASTBuilder,
+        request_model: FastAPIModel,
+        response_model: FastAPIModel,
+        url: Expr,
+    ) -> None:
+        with scope.func_def("send_requests").arg("ws", self.__ws_async_session).returns(scope.none()).async_():
+            with scope.try_stmt() as try_stmt:
+                with try_stmt.body():
+                    with scope.for_stmt("request", scope.attr("requests")).async_().body():
+                        scope.stmt(
+                            scope.attr("ws", "send_text")
+                            .call()
+                            .arg(request_model.build_dump_json_expr(scope, scope.attr("request")))
+                            .await_(),
+                        )
 
-        if is_async:
-            with_stmt = with_stmt.async_().enter(scope.call(self.__asyncio_task_group), "tasks")
+                with try_stmt.finally_():
+                    scope.stmt(scope.attr("ws", "close").call().await_())
 
-        return with_stmt
-
-    def __build_client_method_stream_stream_sender(self, scope: ScopeASTBuilder, is_async: bool) -> None:
-        if is_async:
+        with (
+            scope.with_stmt()
+            .async_()
+            .enter(scope.call(self.__asyncio_task_group), "tasks")
+            .enter(scope.call(self.__ws_async_connect).kwarg("url", url).kwarg("client", scope.self_attr("impl")), "ws")
+            .body()
+        ):
             scope.assign_stmt(
                 target="sender",
                 value=scope.attr("tasks", "create_task")
@@ -599,42 +586,96 @@ class FastAPICodeGenerator(CodeGenerator):
                 .arg(scope.attr("send_requests").call().arg(scope.attr("ws"))),
             )
 
-        else:
+            with scope.while_stmt(scope.not_op(scope.attr("sender", "done").call())).body():
+                with scope.try_stmt() as try_stmt:
+                    with try_stmt.body():
+                        scope.assign_stmt(
+                            target="raw_response",
+                            value=scope.attr("ws", "receive_text")
+                            .call()
+                            .kwarg("timeout", scope.attr("receive_timeout"))
+                            .await_(),
+                        )
+
+                    with try_stmt.except_(*self.__ws_receiver_no_data_errors):
+                        scope.continue_stmt()
+
+                    with try_stmt.except_(*self.__ws_receiver_network_errors, name="err"):
+                        with scope.if_stmt(scope.attr("sender", "done").call()).body():
+                            scope.break_stmt()
+
+                        scope.raise_stmt(scope.attr("err"))
+
+                    with try_stmt.else_():
+                        scope.assign_stmt(
+                            target="response",
+                            value=response_model.build_load_json_expr(scope, scope.attr("raw_response")),
+                        )
+                        scope.yield_stmt(scope.attr("response"))
+
+    def __build_client_method_stream_stream_sync(
+        self,
+        scope: MethodScopeASTBuilder,
+        request_model: FastAPIModel,
+        response_model: FastAPIModel,
+        url: Expr,
+    ) -> None:
+        scope.assign_stmt("done", scope.attr("threading", "Event").call())
+
+        with scope.func_def("send_requests").arg("ws", self.__ws_sync_session).returns(scope.none()):
+            scope.stmt(scope.attr("done", "clear").call())
+            with scope.try_stmt() as try_stmt:
+                with try_stmt.body():
+                    with scope.for_stmt("request", scope.attr("requests")).body():
+                        scope.stmt(
+                            scope.attr("ws", "send_text")
+                            .call()
+                            .arg(request_model.build_dump_json_expr(scope, scope.attr("request")))
+                        )
+
+                with try_stmt.finally_():
+                    scope.stmt(scope.attr("done", "set").call())
+                    scope.stmt(scope.attr("ws", "close").call())
+
+        with (
+            scope.with_stmt()
+            .enter(scope.call(self.__ws_sync_connect).kwarg("url", url).kwarg("client", scope.self_attr("impl")), "ws")
+            .body()
+        ):
             scope.assign_stmt(
                 target="sender",
                 value=scope.call(self.__threading_thread)
                 .kwarg("target", scope.attr("send_requests"))
                 .kwarg("args", scope.tuple_expr(scope.attr("ws")))
-                .kwarg("daemon", scope.const(True)),
+                .kwarg("daemon", scope.const(value=True)),
             )
             scope.stmt(scope.attr("sender", "start").call())
 
-    def __build_client_method_stream_stream_receiver(
-        self,
-        scope: ScopeASTBuilder,
-        response_model: FastAPIModel,
-        is_async: bool,
-    ) -> None:
-        with scope.while_stmt(scope.not_op(scope.attr("sender", "done" if is_async else "is_alive").call())).body():
-            with scope.try_stmt() as try_stmt:
-                with try_stmt.body():
-                    scope.assign_stmt(
-                        target="raw_response",
-                        value=scope.attr("ws", "receive_text").call().await_(is_awaited=is_async),
-                    )
+            with scope.while_stmt(scope.not_op(scope.attr("done", "is_set").call())).body():
+                with scope.try_stmt() as try_stmt:
+                    with try_stmt.body():
+                        scope.assign_stmt(
+                            target="raw_response",
+                            value=scope.attr("ws", "receive_text")
+                            .call()
+                            .kwarg("timeout", scope.attr("receive_timeout")),
+                        )
 
-                with try_stmt.except_(*self.__ws_receiver_errors, name="err"):
-                    with scope.if_stmt(scope.attr("sender", "done" if is_async else "is_alive").call()).body():
-                        scope.break_stmt()
+                    with try_stmt.except_(*self.__ws_receiver_no_data_errors):
+                        scope.continue_stmt()
 
-                    scope.raise_stmt(scope.attr("err"))
+                    with try_stmt.except_(*self.__ws_receiver_network_errors, name="err"):
+                        with scope.if_stmt(scope.attr("done", "is_set").call()).body():
+                            scope.break_stmt()
 
-                with try_stmt.else_():
-                    scope.assign_stmt(
-                        target="response",
-                        value=response_model.build_load_json_expr(scope, scope.attr("raw_response")),
-                    )
-                    scope.yield_stmt(scope.attr("response"))
+                        scope.raise_stmt(scope.attr("err"))
+
+                    with try_stmt.else_():
+                        scope.assign_stmt(
+                            target="response",
+                            value=response_model.build_load_json_expr(scope, scope.attr("raw_response")),
+                        )
+                        scope.yield_stmt(scope.attr("response"))
 
     @cached_property
     def __threading_thread(self) -> TypeInfo:
@@ -645,7 +686,27 @@ class FastAPICodeGenerator(CodeGenerator):
         return NamedTypeInfo.build("asyncio", "TaskGroup")
 
     @cached_property
-    def __ws_receiver_errors(self) -> t.Sequence[TypeInfo]:
+    def __ws_sync_connect(self) -> NamedTypeInfo:
+        return NamedTypeInfo.build("httpx_ws", "connect_ws")
+
+    @cached_property
+    def __ws_async_connect(self) -> NamedTypeInfo:
+        return NamedTypeInfo.build("httpx_ws", "aconnect_ws")
+
+    @cached_property
+    def __ws_sync_session(self) -> NamedTypeInfo:
+        return NamedTypeInfo.build("httpx_ws", "WebSocketSession")
+
+    @cached_property
+    def __ws_async_session(self) -> NamedTypeInfo:
+        return NamedTypeInfo.build("httpx_ws", "AsyncWebSocketSession")
+
+    @cached_property
+    def __ws_receiver_no_data_errors(self) -> t.Sequence[TypeInfo]:
+        return [NamedTypeInfo.build("queue", "Empty")]
+
+    @cached_property
+    def __ws_receiver_network_errors(self) -> t.Sequence[TypeInfo]:
         return [
             NamedTypeInfo.build("httpx_ws", "WebSocketNetworkError"),
             NamedTypeInfo.build("httpx_ws", "WebSocketDisconnect"),

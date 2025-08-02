@@ -1,7 +1,9 @@
 import api.fastapi.model
 import asyncio
+import builtins
 import httpx
 import httpx_ws
+import queue
 import threading
 import typing
 
@@ -18,22 +20,27 @@ class GreeterClient:
     def notify_greeted(self, request: api.fastapi.model.GreeterNotifyGreetedRequest) -> None:
         self.__impl.post(url='/greeter/notify_greeted', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
 
-    def stream_greetings(self, requests: typing.Iterable[api.fastapi.model.GreeterStreamGreetingsRequest]) -> typing.Iterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
+    def stream_greetings(self, requests: typing.Iterable[api.fastapi.model.GreeterStreamGreetingsRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.Iterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
+        done = threading.Event()
 
         def send_requests(ws: httpx_ws.WebSocketSession) -> None:
+            done.clear()
             try:
                 for request in requests:
                     ws.send_text(request.model_dump_json(by_alias=True, exclude_none=True))
             finally:
+                done.set()
                 ws.close()
         with httpx_ws.connect_ws(url='/greeter/stream_greetings', client=self.__impl) as ws:
             sender = threading.Thread(target=send_requests, args=(ws,), daemon=True)
             sender.start()
-            while not sender.is_alive():
+            while not done.is_set():
                 try:
-                    raw_response = ws.receive_text()
+                    raw_response = ws.receive_text(timeout=receive_timeout)
+                except queue.Empty:
+                    continue
                 except (httpx_ws.WebSocketNetworkError, httpx_ws.WebSocketDisconnect) as err:
-                    if sender.is_alive():
+                    if done.is_set():
                         break
                     raise err
                 else:
@@ -53,7 +60,7 @@ class GreeterAsyncClient:
     async def notify_greeted(self, request: api.fastapi.model.GreeterNotifyGreetedRequest) -> None:
         await self.__impl.post(url='/greeter/notify_greeted', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
 
-    async def stream_greetings(self, requests: typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsRequest]) -> typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
+    async def stream_greetings(self, requests: typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
 
         async def send_requests(ws: httpx_ws.AsyncWebSocketSession) -> None:
             try:
@@ -65,7 +72,9 @@ class GreeterAsyncClient:
             sender = tasks.create_task(send_requests(ws))
             while not sender.done():
                 try:
-                    raw_response = await ws.receive_text()
+                    raw_response = await ws.receive_text(timeout=receive_timeout)
+                except queue.Empty:
+                    continue
                 except (httpx_ws.WebSocketNetworkError, httpx_ws.WebSocketDisconnect) as err:
                     if sender.done():
                         break
