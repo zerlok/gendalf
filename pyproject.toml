@@ -190,9 +190,7 @@ module = [
 disable_error_code = ["unreachable"]
 
 [tool.pytest.ini_options]
-pythonpath = [
-    "src",
-]
+pythonpath = ["src", "examples/my_greeter/generated", "examples/my_greeter/src"]
 addopts = [
     "--cov=src",
     "--cov-report=term-missing",
