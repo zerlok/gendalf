@@ -435,7 +435,7 @@ class FastAPICodeGenerator(CodeGenerator):
                 "router",
                 value=scope.call(fastapi_router_ref)
                 .kwarg("prefix", scope.const(f"/{camel2snake(entrypoint.name)}"))
-                .kwarg("tags", scope.const([entrypoint.name])),
+                .kwarg("tags", scope.list_expr([scope.const(entrypoint.name)])),
             )
 
             for method in entrypoint.methods:

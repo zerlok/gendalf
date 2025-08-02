@@ -7,6 +7,7 @@ from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
 from gendalf.cli import GenKind
 from gendalf.entrypoint.inspection import EntrypointInspector
 from gendalf.generator.abc import CodeGenerator
+from gendalf.generator.aiohttp import AiohttpCodeGenerator
 from gendalf.generator.fastapi import FastAPICodeGenerator
 from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 
@@ -35,6 +36,9 @@ def code_generator(
 ) -> CodeGenerator:
     if code_generator_kind == "fastapi":
         return FastAPICodeGenerator(type_loader, type_inspector, type_annotator)
+
+    elif code_generator_kind == "aiohttp":
+        return AiohttpCodeGenerator(type_loader, type_inspector, type_annotator)
 
     else:
         msg = "unknown code generator kind"

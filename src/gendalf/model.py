@@ -8,7 +8,7 @@ from gendalf._typing import TypeAlias, override
 from gendalf.option import Option
 
 if t.TYPE_CHECKING:
-    from astlab.types import TypeInfo
+    from astlab.types import NamedTypeInfo, TypeInfo
 
 
 class Visitable(metaclass=abc.ABCMeta):
@@ -61,7 +61,7 @@ MethodInfo: TypeAlias = t.Union[UnaryUnaryMethodInfo, StreamStreamMethodInfo]
 @dataclass(frozen=True)
 class EntrypointInfo(Visitable):
     name: str
-    type_: TypeInfo
+    type_: NamedTypeInfo
     methods: t.Sequence[MethodInfo]
     doc: t.Optional[str]
 

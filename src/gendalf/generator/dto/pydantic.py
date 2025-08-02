@@ -10,6 +10,7 @@ from astlab.abc import Expr, TypeRef
 from astlab.builder import ClassTypeRefBuilder, Comprehension, ScopeASTBuilder
 from astlab.types import (
     LiteralTypeInfo,
+    ModuleInfo,
     NamedTypeInfo,
     RuntimeType,
     TypeAnnotator,
@@ -143,6 +144,10 @@ class PydanticDtoMapper(DtoMapper):
 
     def __process_domain_type(self, info: TypeInfo) -> ProcessedDomainTypeInfo:
         rtt = self.__loader.load(info)
+
+        if isinstance(info, ModuleInfo):
+            msg = "module can't be a domain type"
+            raise TypeError(msg, info)
 
         if isinstance(info, NamedTypeInfo):
             if rtt in {None, Ellipsis} or (isinstance(rtt, type) and issubclass(rtt, self.__scalar_types)):  # type: ignore[misc]

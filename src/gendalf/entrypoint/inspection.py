@@ -5,7 +5,7 @@ from pathlib import Path
 from types import ModuleType
 
 from astlab.reader import walk_package_modules
-from astlab.types import ModuleLoader, TypeInfo, TypeInspector
+from astlab.types import ModuleLoader, NamedTypeInfo, TypeInfo, TypeInspector
 
 from gendalf.entrypoint.decorator import get_entrypoint_config
 from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
@@ -62,6 +62,9 @@ class EntrypointInspector:
                 continue
 
             type_info = self.__inspector.inspect(obj)
+            if not isinstance(type_info, NamedTypeInfo):
+                msg = "invalid entrypoint type info"
+                raise TypeError(msg, type_info)
 
             yield EntrypointInfo(
                 name=opts.name if opts.name is not None else name,
