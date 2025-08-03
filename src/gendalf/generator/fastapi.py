@@ -16,9 +16,9 @@ from astlab.builder import (
 from astlab.types import NamedTypeInfo, TypeAnnotator, TypeInfo, TypeInspector, TypeLoader
 
 from gendalf._typing import assert_never, override
-from gendalf.generator.abc import CodeGenerator
+from gendalf.generator.abc import EntrypointCodeGenerator
 from gendalf.generator.dto.pydantic import PydanticDtoMapper
-from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
+from gendalf.generator.model import CodeGeneratorResult, EntrypointCodeGeneratorContext
 from gendalf.model import EntrypointInfo, MethodInfo, ParameterInfo, StreamStreamMethodInfo, UnaryUnaryMethodInfo
 from gendalf.string_case import camel2snake, snake2camel
 
@@ -180,14 +180,14 @@ class FastAPIModelRegistry:
         return "".join(snake2camel(s) for s in (entrypoint.name, method.name, suffix))
 
 
-class FastAPICodeGenerator(CodeGenerator):
+class FastAPICodeGenerator(EntrypointCodeGenerator):
     def __init__(self, loader: TypeLoader, inspector: TypeInspector, annotator: TypeAnnotator) -> None:
         self.__loader = loader
         self.__inspector = inspector
         self.__annotator = annotator
 
     @override
-    def generate(self, context: CodeGeneratorContext) -> CodeGeneratorResult:
+    def generate(self, context: EntrypointCodeGeneratorContext) -> CodeGeneratorResult:
         with self.__init_root(context) as (root, pkg):
             registry = self.__build_model_module(context, pkg)
             self.__build_server_module(context, pkg, registry)
@@ -204,7 +204,10 @@ class FastAPICodeGenerator(CodeGenerator):
         )
 
     @contextmanager
-    def __init_root(self, context: CodeGeneratorContext) -> t.Iterator[tuple[PackageASTBuilder, PackageASTBuilder]]:
+    def __init_root(
+        self,
+        context: EntrypointCodeGeneratorContext,
+    ) -> t.Iterator[tuple[PackageASTBuilder, PackageASTBuilder]]:
         if context.package is not None:
             with package(context.package, inspector=self.__inspector) as pkg:
                 yield pkg, pkg
@@ -222,7 +225,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_model_module(
         self,
-        context: CodeGeneratorContext,
+        context: EntrypointCodeGeneratorContext,
         pkg: PackageASTBuilder,
     ) -> FastAPIModelRegistry:
         registry = FastAPIModelRegistry(
@@ -243,7 +246,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_server_module(
         self,
-        context: CodeGeneratorContext,
+        context: EntrypointCodeGeneratorContext,
         pkg: PackageASTBuilder,
         registry: FastAPIModelRegistry,
     ) -> None:
@@ -445,7 +448,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
     def __build_client_module(
         self,
-        context: CodeGeneratorContext,
+        context: EntrypointCodeGeneratorContext,
         pkg: PackageASTBuilder,
         registry: FastAPIModelRegistry,
     ) -> None:

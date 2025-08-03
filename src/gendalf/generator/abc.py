@@ -1,11 +1,19 @@
 import abc
 
-from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
+from gendalf.generator.model import CodeGeneratorResult, EntrypointCodeGeneratorContext, SQLCodeGeneratorContext
 
 
-class CodeGenerator(metaclass=abc.ABCMeta):
-    """Interface for code generators used by `gendalf`."""
+class EntrypointCodeGenerator(metaclass=abc.ABCMeta):
+    """Interface for entrypoint code generators used by `gendalf`."""
 
     @abc.abstractmethod
-    def generate(self, context: CodeGeneratorContext) -> CodeGeneratorResult:
+    def generate(self, context: EntrypointCodeGeneratorContext) -> CodeGeneratorResult:
+        raise NotImplementedError
+
+
+class SQLCodeGenerator(metaclass=abc.ABCMeta):
+    """Interface for SQL code generators used by `gendalf`."""
+
+    @abc.abstractmethod
+    def generate(self, context: SQLCodeGeneratorContext) -> CodeGeneratorResult:
         raise NotImplementedError

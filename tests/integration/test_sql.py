@@ -4,45 +4,29 @@ from pathlib import Path
 import pytest
 from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
 
-from gendalf.cli import GenKind
-from gendalf.entrypoint.inspection import EntrypointInspector
-from gendalf.generator.abc import EntrypointCodeGenerator
-from gendalf.generator.aiohttp import AiohttpCodeGenerator
-from gendalf.generator.fastapi import FastAPICodeGenerator
-from gendalf.generator.model import CodeGeneratorResult, EntrypointCodeGeneratorContext
+from gendalf.generator.abc import SQLCodeGenerator
+from gendalf.generator.model import CodeGeneratorResult, SQLCodeGeneratorContext
+from gendalf.generator.sqlcast import SQLCastCodeGenerator
+from gendalf.sql.inspector import SQLInspector
 
 
 @pytest.mark.parametrize(
     ("case_dir", "input_rglob"),
     [
-        pytest.param(Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
+        pytest.param(Path.cwd() / "examples" / "my_greeter", "src/**/*.sql", id="examples my_greeter"),
     ],
 )
-@pytest.mark.parametrize("code_generator_kind", t.get_args(GenKind))
 def test_code_generator_returns_expected_result(
-    code_generator: EntrypointCodeGenerator,
-    code_generator_context: EntrypointCodeGeneratorContext,
-    expected_code_generator_result: CodeGeneratorResult,
+    code_generator: SQLCodeGenerator,
+    sql_generator_context: SQLCodeGeneratorContext,
+    expected_sql_generator_result: CodeGeneratorResult,
 ) -> None:
-    assert sort_files(code_generator.generate(code_generator_context)) == expected_code_generator_result
+    assert sort_files(code_generator.generate(sql_generator_context)) == expected_sql_generator_result
 
 
 @pytest.fixture
-def code_generator(
-    code_generator_kind: str,
-    type_loader: TypeLoader,
-    type_inspector: TypeInspector,
-    type_annotator: TypeAnnotator,
-) -> EntrypointCodeGenerator:
-    if code_generator_kind == "fastapi":
-        return FastAPICodeGenerator(type_loader, type_inspector, type_annotator)
-
-    elif code_generator_kind == "aiohttp":
-        return AiohttpCodeGenerator(type_loader, type_inspector, type_annotator)
-
-    else:
-        msg = "unknown code generator kind"
-        raise ValueError(msg, code_generator_kind)
+def code_generator() -> SQLCodeGenerator:
+    return SQLCastCodeGenerator()
 
 
 @pytest.fixture
@@ -69,8 +53,8 @@ def type_annotator(module_loader: ModuleLoader) -> TypeAnnotator:
 
 
 @pytest.fixture
-def entrypoint_inspector(module_loader: ModuleLoader, type_inspector: TypeInspector) -> EntrypointInspector:
-    return EntrypointInspector(module_loader, type_inspector)
+def sql_inspector() -> SQLInspector:
+    return SQLInspector()
 
 
 @pytest.fixture
@@ -86,17 +70,17 @@ def input_rglob() -> t.Optional[str]:
 @pytest.fixture
 def input_paths(case_dir: Path, input_rglob: t.Optional[str]) -> t.Sequence[Path]:
     assert case_dir.is_dir()
-    return list(case_dir.rglob(input_rglob if input_rglob is not None else "src/**/*.py"))
+    return list(case_dir.rglob(input_rglob if input_rglob is not None else "src/**/*.sql"))
 
 
 @pytest.fixture
-def code_generator_context(
+def sql_generator_context(
     input_paths: t.Sequence[Path],
     output_dir: Path,
-    entrypoint_inspector: EntrypointInspector,
-) -> EntrypointCodeGeneratorContext:
-    return EntrypointCodeGeneratorContext(
-        entrypoints=list(entrypoint_inspector.inspect_paths(input_paths)),
+    sql_inspector: SQLInspector,
+) -> SQLCodeGeneratorContext:
+    return SQLCodeGeneratorContext(
+        sqls=list(sql_inspector.inspect_paths(input_paths)),
         output=output_dir,
         package=None,
     )
@@ -118,16 +102,16 @@ def expected_output_paths(
     output_dir: Path,
     output_rglob: t.Optional[str],
 ) -> t.Sequence[Path]:
-    paths = [output_dir / "api" / "__init__.py"]
+    paths = [output_dir / "db" / "__init__.py"]
     paths.extend(
-        (output_dir / "api").rglob(output_rglob if output_rglob is not None else f"{code_generator_kind}/**/*.py")
+        (output_dir / "db").rglob(output_rglob if output_rglob is not None else f"{code_generator_kind}/**/*.py")
     )
 
     return paths
 
 
 @pytest.fixture
-def expected_code_generator_result(expected_output_paths: t.Sequence[Path]) -> CodeGeneratorResult:
+def expected_sql_generator_result(expected_output_paths: t.Sequence[Path]) -> CodeGeneratorResult:
     return sort_files(
         CodeGeneratorResult(
             files=[

@@ -1,5 +1,4 @@
 -- !sqlcast
--- dialect: postgres
 
 -- name: create_users_table
 create table if not exists users

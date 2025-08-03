@@ -10,11 +10,11 @@ from gendalf.entrypoint.inspection import EntrypointInspector
 from gendalf.entrypoint.printer import Printer
 from gendalf.generator.aiohttp import AiohttpCodeGenerator
 from gendalf.generator.fastapi import FastAPICodeGenerator
-from gendalf.generator.model import CodeGeneratorContext
+from gendalf.generator.model import EntrypointCodeGeneratorContext
 from gendalf.model import EntrypointInfo
 
 if t.TYPE_CHECKING:
-    from gendalf.generator.abc import CodeGenerator
+    from gendalf.generator.abc import EntrypointCodeGenerator
 
 T = t.TypeVar("T")
 
@@ -123,13 +123,13 @@ def cast(
 ) -> None:
     """Generate code for specified python package."""
 
-    gen_context = CodeGeneratorContext(
+    gen_context = EntrypointCodeGeneratorContext(
         entrypoints=list(context.inspect_source()),
         output=output if output is not None else context.source,
         package=package,
     )
 
-    gen: CodeGenerator
+    gen: EntrypointCodeGenerator
     if kind == "fastapi":
         gen = FastAPICodeGenerator(
             loader=context.type_loader,

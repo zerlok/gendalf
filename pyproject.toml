@@ -163,12 +163,13 @@ disable_error_code = [
     "explicit-override",
 ]
 
-# NOTE: httpx, fastapi, aiohttp may return `Any`
+# NOTE: httpx, fastapi, aiohttp, asyncpg may return `Any`
 [[tool.mypy.overrides]]
 module = [
     "examples.my_greeter.client",
     "api.fastapi.*",
     "api.aiohttp.*",
+    "db.*",
 ]
 disallow_any_expr = false
 disallow_any_explicit = false

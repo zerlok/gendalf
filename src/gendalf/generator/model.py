@@ -9,11 +9,19 @@ if t.TYPE_CHECKING:
     from astlab.types import PackageInfo
 
     from gendalf.model import EntrypointInfo
+    from gendalf.sql.model import SQLInfo
 
 
 @dataclass(frozen=True)
-class CodeGeneratorContext:
+class EntrypointCodeGeneratorContext:
     entrypoints: t.Sequence[EntrypointInfo]
+    output: Path
+    package: t.Optional[PackageInfo]
+
+
+@dataclass(frozen=True)
+class SQLCodeGeneratorContext:
+    sqls: t.Sequence[SQLInfo]
     output: Path
     package: t.Optional[PackageInfo]
 
