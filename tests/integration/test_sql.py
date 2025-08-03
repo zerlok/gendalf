@@ -54,7 +54,7 @@ def type_annotator(module_loader: ModuleLoader) -> TypeAnnotator:
 
 @pytest.fixture
 def sql_inspector() -> SQLInspector:
-    return SQLInspector()
+    return SQLInspector(dialect="postgres")
 
 
 @pytest.fixture
@@ -98,14 +98,11 @@ def output_rglob() -> t.Optional[str]:
 
 @pytest.fixture
 def expected_output_paths(
-    code_generator_kind: str,
     output_dir: Path,
     output_rglob: t.Optional[str],
 ) -> t.Sequence[Path]:
     paths = [output_dir / "db" / "__init__.py"]
-    paths.extend(
-        (output_dir / "db").rglob(output_rglob if output_rglob is not None else f"{code_generator_kind}/**/*.py")
-    )
+    paths.extend((output_dir / "db").rglob(output_rglob if output_rglob is not None else "*.py"))
 
     return paths
 

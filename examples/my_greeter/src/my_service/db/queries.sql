@@ -5,7 +5,8 @@ create table if not exists users
 (
     id         serial primary key,
     name       varchar(256)             not null,
-    created_at timestamp with time zone not null default current_timestamp
+    created_at timestamp with time zone not null default current_timestamp,
+    account_id integer
 );
 
 -- name: create_user :one

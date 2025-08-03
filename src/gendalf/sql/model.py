@@ -2,19 +2,18 @@ __all__ = [
     "ColumnInfo",
     "FetchMode",
     "ParameterInfo",
-    "QueryInfo",
-    "RowInfo",
+    "ParametrizedQueryInfo",
+    "RecordInfo",
     "SQLInfo",
+    "SimpleQueryInfo",
     "TableInfo",
 ]
 
 import typing as t
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from astlab.types import TypeInfo
-
-from gendalf.option import Option
 
 FetchMode = t.Literal["exec", "one", "many"]
 
@@ -23,35 +22,54 @@ FetchMode = t.Literal["exec", "one", "many"]
 class ParameterInfo:
     name: str
     type_: TypeInfo
-    default: Option[object] = field(default_factory=Option[object].empty)
 
 
 @dataclass(frozen=True)
 class ColumnInfo:
     name: str
     type_: TypeInfo
-    default: Option[object] = field(default_factory=Option[object].empty)
+    has_default: bool
+
+
+@dataclass(frozen=True)
+class SimpleQueryInfo:
+    name: str
+    statement: str
 
 
 @dataclass(frozen=True)
 class TableInfo:
-    statement: str
     name: str
     columns: t.Sequence[ColumnInfo]
+    query: SimpleQueryInfo
 
 
 @dataclass(frozen=True)
-class RowInfo:
-    columns: t.Sequence[ColumnInfo]
+class SimpleFieldInfo:
+    type_: TypeInfo
+    alias: t.Optional[str] = None
 
 
 @dataclass(frozen=True)
-class QueryInfo:
-    name: str
-    statement: str
+class TableColumnRefFieldInfo:
+    table: TableInfo
+    column: ColumnInfo
+    alias: t.Optional[str] = None
+
+
+FieldInfo = t.Union[SimpleFieldInfo, TableColumnRefFieldInfo]
+
+
+@dataclass(frozen=True)
+class RecordInfo:
+    fields: t.Sequence[FieldInfo]
+
+
+@dataclass(frozen=True)
+class ParametrizedQueryInfo(SimpleQueryInfo):
     params: t.Sequence[ParameterInfo]
     fetch: FetchMode
-    returns: RowInfo
+    returns: RecordInfo
 
 
 @dataclass(frozen=True)
@@ -59,4 +77,4 @@ class SQLInfo:
     path: Path
     dialect: str
     tables: t.Sequence[TableInfo]
-    queries: t.Sequence[QueryInfo]
+    queries: t.Sequence[ParametrizedQueryInfo]
