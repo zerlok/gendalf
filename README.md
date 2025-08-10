@@ -1,5 +1,5 @@
 <div align="center">
-<img src="docs/gendalf-logo.svg" alt="Gendalf Logo" width="2048">
+<img src="docs/gendalf-logo.svg" alt="Gendalf Logo" width="300">
 
 [![Latest Version](https://img.shields.io/pypi/v/gendalf.svg)](https://pypi.python.org/pypi/gendalf) [![Python Supported Versions](https://img.shields.io/pypi/pyversions/gendalf.svg)](https://pypi.python.org/pypi/gendalf) [![MyPy Strict](https://img.shields.io/badge/mypy-strict-blue)](https://mypy.readthedocs.io/en/stable/getting_started.html#strict-mode-and-configuration) [![Test Coverage](https://codecov.io/gh/zerlok/gendalf/branch/main/graph/badge.svg)](https://codecov.io/gh/zerlok/gendalf) [![Downloads](https://img.shields.io/pypi/dm/gendalf.svg)](https://pypistats.org/packages/gendalf) [![GitHub stars](https://img.shields.io/github/stars/zerlok/gendalf)](https://github.com/zerlok/gendalf/stargazers)
 
