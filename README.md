@@ -1,16 +1,15 @@
-# Gendalf
+<div align="center">
+<img src="https://raw.githubusercontent.com/zerlok/gendalf/main/docs/gendalf-logo.svg" alt="Gendalf Logo" width="800">
 
-[![Latest Version](https://img.shields.io/pypi/v/gendalf.svg)](https://pypi.python.org/pypi/gendalf)
-[![Python Supported Versions](https://img.shields.io/pypi/pyversions/gendalf.svg)](https://pypi.python.org/pypi/gendalf)
-[![MyPy Strict](https://img.shields.io/badge/mypy-strict-blue)](https://mypy.readthedocs.io/en/stable/getting_started.html#strict-mode-and-configuration)
-[![Test Coverage](https://codecov.io/gh/zerlok/gendalf/branch/main/graph/badge.svg)](https://codecov.io/gh/zerlok/gendalf)
-[![Downloads](https://img.shields.io/pypi/dm/gendalf.svg)](https://pypistats.org/packages/gendalf)
-[![GitHub stars](https://img.shields.io/github/stars/zerlok/gendalf)](https://github.com/zerlok/gendalf/stargazers)
+[![Latest Version](https://img.shields.io/pypi/v/gendalf.svg)](https://pypi.python.org/pypi/gendalf) [![Python Supported Versions](https://img.shields.io/pypi/pyversions/gendalf.svg)](https://pypi.python.org/pypi/gendalf) [![MyPy Strict](https://img.shields.io/badge/mypy-strict-blue)](https://mypy.readthedocs.io/en/stable/getting_started.html#strict-mode-and-configuration) [![Test Coverage](https://codecov.io/gh/zerlok/gendalf/branch/main/graph/badge.svg)](https://codecov.io/gh/zerlok/gendalf) [![Downloads](https://img.shields.io/pypi/dm/gendalf.svg)](https://pypistats.org/packages/gendalf) [![GitHub stars](https://img.shields.io/github/stars/zerlok/gendalf)](https://github.com/zerlok/gendalf/stargazers)
 
 *You shall pass... your domain to transport!*
+</div>
+
+---
 
 **Gendalf** is a Python code generation tool that simplifies the creation of **transport layer** code based on
-**Domain-Driven Design (DDD)** principles. With **gendalf**, you can effortlessly generate FastAPI, HTTPX, gRPC,
+**Domain-Driven Design (DDD)** principles. With **Gendalf**, you can effortlessly generate FastAPI, HTTPX, gRPC,
 aiohttp, and other transport framework code from your domain layer, ensuring that your business logic remains untouched
 while automating the generation of transport-related code.
 
@@ -23,10 +22,10 @@ while automating the generation of transport-related code.
 - **Powered by [astlab](https://github.com/zerlok/astlab) generator**: Uses Python's built-in Abstract Syntax Tree (AST)
   to generate Python modules from your domain entities and interfaces.
 
-## Why gendalf?
+## Why Gendalf?
 
-With **gendalf**, you don’t have to worry about manually wiring your domain logic to transport code. Whether you're
-building APIs, microservices, or handling complex asynchronous communication, **gendalf** automates the transport layer
+With **Gendalf**, you don’t have to worry about manually wiring your domain logic to transport code. Whether you're
+building APIs, microservices, or handling complex asynchronous communication, **Gendalf** automates the transport layer
 creation: handles repetitive and error-prone process of writing endpoint handlers and clients from scratch, letting you
 focus on what matters most: your business logic.
 
@@ -43,7 +42,7 @@ It's particularly useful for:
 ### Comparison with existing codegen solutions
 
 There are many tools for code generation in the Python ecosystem, but most are focused on simplifying specific tasks
-like serialization, or generating CRUD / REST operations. Here’s how **gendalf** project differs:
+like serialization, or generating CRUD / REST operations. Here’s how **Gendalf** project differs:
 
 * **Domain-Driven Design (DDD) Focus:** Unlike other code generation tools that focus on CRUD or specific transport
   protocols, this project fully integrates with a DDD approach. This means developers work on the domain layer and let
@@ -68,16 +67,34 @@ Run with `gendalf src cast fastapi`. It supports:
 
 #### What’s Generated
 
-* `src/api/models.py`: Pydantic models for requests and responses that mirror the domain objects. Used by `client.py` and `server.py`
-* `src/api/client.py`: Client classes with async methods, ready to make API calls with appropriate typings for request and
+* `src/api/fastapi/models.py`: Pydantic models for requests and responses that mirror the domain objects. Used by `client.py` and `server.py`
+* `src/api/fastapi/client.py`: Client classes with async methods, ready to make API calls with appropriate typings for request and
   response data.
-* `src/api/server.py`: Server handler classes, which include data serialization and domain logic invocation.
+* `src/api/fastapi/server.py`: Server handler classes, which include data serialization and domain logic invocation.
 
 The generated code is complete, with no need for additional modifications.
 
+### Aiohttp
+
+Run with `gendalf src cast aiohttp`. It supports:
+
+- request-response (POST method, request & response in HTTP body in JSON format)
+- duplex streaming (WebSocket, requests & responses are in WS frames in JSON format)
+
+#### What’s Generated
+
+* `src/api/aiohttp/models.py`: Pydantic models for requests and responses that mirror the domain objects. Used by `client.py` and `server.py`
+* `src/api/aiohttp/client.py`: Client classes with async methods, ready to make API calls with appropriate typings for request and
+  response data.
+* `src/api/aiohttp/server.py`: Server handler classes, which include data serialization and domain logic invocation.
+
 #### Examples
 
-- [my greeter](examples/my_greeter)
+- [my greeter](https://raw.githubusercontent.com/zerlok/gendalf/main/examples/my_greeter)
+
+### SQL
+
+**WIP: generate python type safe code to invoke SQL**
 
 ### gRPC (not supported yet)
 
