@@ -6,33 +6,10 @@ from functools import cached_property
 from pathlib import Path
 
 from astlab.types import NamedTypeInfo, TypeInfo, predef
-from sqlglot import Dialect, Expression, MappingSchema, parse
-from sqlglot.expressions import (
-    EQ,
-    GT,
-    GTE,
-    LT,
-    LTE,
-    NEQ,
-    Column,
-    ColumnDef,
-    Create,
-    DataType,
-    DefaultColumnConstraint,
-    ILike,
-    Is,
-    Like,
-    Limit,
-    NotNullColumnConstraint,
-    Offset,
-    Placeholder,
-    PrimaryKeyColumnConstraint,
-    Schema,
-    Table,
-)
-from sqlglot.optimizer.annotate_types import TypeAnnotator, annotate_types
+from sqlglot import Dialect, Expression, MappingSchema, exp, parse
 from sqlglot.optimizer.qualify import qualify
 
+from gendalf.sql.annotator import SQLAnnotator
 from gendalf.sql.model import (
     ColumnInfo,
     FetchMode,
@@ -57,12 +34,13 @@ class SQLInspector:
         parsed = [(path, self.__parse(path)) for path in paths]
 
         schema = self.__build_schema(parsed)
+        annotator = SQLAnnotator(schema)
 
         for path, expressions in parsed:
             tables = list[TableInfo]()
             queries = list[ParametrizedQueryInfo]()
 
-            for expr in self.__annotate(expressions, schema):
+            for expr in annotator.iter_annotated(expressions):
                 table = self.__extract_table(expr)
                 if table is not None:
                     tables.append(table)
@@ -85,15 +63,25 @@ class SQLInspector:
         qualified = qualify(expr, dialect=self.__dialect)
 
         for node in expr.dfs():
-            if isinstance(node, ColumnDef):
+            if isinstance(node, exp.ColumnDef):
                 if "nullable" not in node.kind.args:
                     nullable = not any(
-                        isinstance(c.kind, (PrimaryKeyColumnConstraint, NotNullColumnConstraint))
+                        isinstance(c.kind, (exp.PrimaryKeyColumnConstraint, exp.NotNullColumnConstraint))
                         for c in node.constraints
                     )
                     node.kind.set("nullable", nullable)
 
+            elif isinstance(node, exp.Column):
+                if not node.table:
+                    node.set("table", self.__get_table_id(node))
+
         return qualified
+
+    def __get_table_id(self, node: exp.Expression) -> exp.Identifier:
+        while not isinstance(node.this, exp.Schema) and node.parent is not None:
+            node = node.parent
+
+        return node.this.this.this
 
     def __build_schema(self, parsed: t.Sequence[tuple[Path, t.Sequence[Expression]]]) -> MappingSchema:
         schema = MappingSchema(dialect=self.__dialect)
@@ -101,33 +89,32 @@ class SQLInspector:
         for _, expressions in parsed:
             for expr in expressions:
                 if (
-                    not isinstance(expr, Create)
-                    or not isinstance(expr.this, Schema)
-                    or not isinstance(expr.this.this, Table)
+                    not isinstance(expr, exp.Create)
+                    or not isinstance(expr.this, exp.Schema)
+                    or not isinstance(expr.this.this, exp.Table)
                 ):
                     continue
 
-                schema_expr: Schema = expr.this
-                table_expr: Table = expr.this.this
+                schema_expr: exp.Schema = expr.this
+                table_expr: exp.Table = expr.this.this
 
                 schema.add_table(
                     table=table_expr,
-                    column_mapping={col: col.kind for col in schema_expr.expressions if isinstance(col, ColumnDef)},
+                    column_mapping={col: col.kind for col in schema_expr.expressions if isinstance(col, exp.ColumnDef)},
                 )
 
         return schema
 
-    def __annotate(self, expressions: t.Sequence[Expression], schema: MappingSchema) -> t.Iterable[Expression]:
-        for expr in expressions:
-            # TODO: support `insert`, `update`, `delete` and other statements.
-            yield annotate_types(expr, schema=schema, annotators={**self.__dialect.ANNOTATORS}, dialect=self.__dialect)
-
     def __extract_table(self, expr: Expression) -> t.Optional[TableInfo]:
-        if not isinstance(expr, Create) or not isinstance(expr.this, Schema) or not isinstance(expr.this.this, Table):
+        if (
+            not isinstance(expr, exp.Create)
+            or not isinstance(expr.this, exp.Schema)
+            or not isinstance(expr.this.this, exp.Table)
+        ):
             return None
 
-        schema_expr: Schema = expr.this
-        table_expr: Table = expr.this.this
+        schema_expr: exp.Schema = expr.this
+        table_expr: exp.Table = expr.this.this
 
         return TableInfo(
             name=table_expr.name,
@@ -138,7 +125,7 @@ class SQLInspector:
                     has_default=self.__has_column_default(column),
                 )
                 for column in schema_expr.expressions
-                if isinstance(column, ColumnDef)
+                if isinstance(column, exp.ColumnDef)
             ],
             query=SimpleQueryInfo(
                 name=self.__extract_query_name(expr.comments),
@@ -156,27 +143,27 @@ class SQLInspector:
             statement=expr.sql(dialect=self.__dialect, comments=False, pretty=False),
             params=[
                 ParameterInfo(name=node.this, type_=self.__extract_param_type(node))
-                for node in expr.find_all(Placeholder)
+                for node in expr.find_all(exp.Placeholder)
             ],
-            fetch=fetch if fetch is not None else "exec" if isinstance(expr, Create) else "many",
+            fetch=fetch if fetch is not None else "exec" if isinstance(expr, exp.Create) else "many",
             # TODO: add returning fields (select & returning)
             returns=RecordInfo(fields=()),
         )
 
-    def __extract_param_type(self, node: Placeholder) -> TypeInfo:
+    def __extract_param_type(self, node: exp.Placeholder) -> TypeInfo:
         parent = node.parent
         if parent is None:
             msg = "placeholder must be a part of expression"
             raise ValueError(msg, node)
 
-        if isinstance(parent, (Is, EQ, NEQ, GT, GTE, LT, LTE, Like, ILike)):
+        if isinstance(parent, (exp.Is, exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Like, exp.ILike)):
             return (
                 self.__extract_expression_type(parent.this)
                 if parent.expression is node
                 else self.__extract_expression_type(parent.expression)
             )
 
-        elif isinstance(parent, (Limit, Offset)):
+        elif isinstance(parent, (exp.Limit, exp.Offset)):
             return predef().int
 
         # TODO: support more expressions
@@ -191,14 +178,14 @@ class SQLInspector:
 
         return self.__extract_py_type(node.type)
 
-    def __extract_column_type(self, column: t.Union[Column, ColumnDef]) -> TypeInfo:
+    def __extract_column_type(self, column: t.Union[exp.Column, exp.ColumnDef]) -> TypeInfo:
         if column.kind is None or column.kind.type is None:
             warnings.warn(f"column {column!r} has no type info, continuing with any", RuntimeWarning)
             return predef().any
 
         return self.__extract_py_type(column.kind.type)
 
-    def __extract_py_type(self, type_: DataType) -> TypeInfo:
+    def __extract_py_type(self, type_: exp.DataType) -> TypeInfo:
         py_type = self.__sql2py_type_map.get(type_.this)
 
         if py_type is None:
@@ -210,8 +197,8 @@ class SQLInspector:
 
         return py_type
 
-    def __has_column_default(self, column: ColumnDef) -> bool:
-        return any(isinstance(c.kind, DefaultColumnConstraint) for c in column.constraints)
+    def __has_column_default(self, column: exp.ColumnDef) -> bool:
+        return any(isinstance(c.kind, exp.DefaultColumnConstraint) for c in column.constraints)
 
     def __extract_query_name(self, comments: t.Sequence[str]) -> str:
         for comment in comments:
@@ -232,24 +219,24 @@ class SQLInspector:
         raise ValueError(msg, comments)
 
     @cached_property
-    def __sql2py_type_map(self) -> t.Mapping[DataType.Type, TypeInfo]:
+    def __sql2py_type_map(self) -> t.Mapping[exp.DataType.Type, TypeInfo]:
         return {
             sql_type: py_type
             for sql_types, py_type in [
-                ([DataType.Type.BOOLEAN], predef().bool),
-                ([DataType.Type.SERIAL, DataType.Type.BIGSERIAL, DataType.Type.SMALLSERIAL], predef().int),
-                (DataType.INTEGER_TYPES, predef().int),
-                (DataType.FLOAT_TYPES, predef().float),
-                (DataType.TEXT_TYPES, predef().str),
-                (DataType.REAL_TYPES, NamedTypeInfo.build("decimal", "Decimal")),
-                (DataType.TEMPORAL_TYPES, NamedTypeInfo.build("datetime", "datetime")),
-                ([DataType.Type.INTERVAL], NamedTypeInfo.build("datetime", "timedelta")),
-                (DataType.ARRAY_TYPES, predef().list),
-                ([DataType.Type.NESTED], predef().mapping),
-                ([DataType.Type.MAP], predef().mapping),
-                ([DataType.Type.OBJECT], predef().object),
-                ([DataType.Type.STRUCT], predef().mapping),
-                ([DataType.Type.UNION], predef().union),
+                ([exp.DataType.Type.BOOLEAN], predef().bool),
+                ([exp.DataType.Type.SERIAL, exp.DataType.Type.BIGSERIAL, exp.DataType.Type.SMALLSERIAL], predef().int),
+                (exp.DataType.INTEGER_TYPES, predef().int),
+                (exp.DataType.FLOAT_TYPES, predef().float),
+                (exp.DataType.TEXT_TYPES, predef().str),
+                (exp.DataType.REAL_TYPES, NamedTypeInfo.build("decimal", "Decimal")),
+                (exp.DataType.TEMPORAL_TYPES, NamedTypeInfo.build("datetime", "datetime")),
+                ([exp.DataType.Type.INTERVAL], NamedTypeInfo.build("datetime", "timedelta")),
+                (exp.DataType.ARRAY_TYPES, predef().list),
+                ([exp.DataType.Type.NESTED], predef().mapping),
+                ([exp.DataType.Type.MAP], predef().mapping),
+                ([exp.DataType.Type.OBJECT], predef().object),
+                ([exp.DataType.Type.STRUCT], predef().mapping),
+                ([exp.DataType.Type.UNION], predef().union),
             ]
             for sql_type in sql_types
         }
@@ -257,7 +244,3 @@ class SQLInspector:
     @cached_property
     def __query_info_pattern(self) -> t.Pattern[str]:
         return re.compile(r"\s*name:\s*(?P<name>\w+)(?:\s*:(?P<fetch>exec|one|many))?")
-
-
-class SQLAnnotator(TypeAnnotator):
-    pass
