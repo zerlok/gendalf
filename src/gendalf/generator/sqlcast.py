@@ -37,8 +37,8 @@ class SQLCastCodeGenerator(SQLCodeGenerator):
                             ):
                                 with (
                                     scope.with_stmt()
-                                    .enter(cm=scope.self_attr("pool", "acquire").call(), name="conn")
                                     .async_()
+                                    .enter(cm=scope.self_attr("pool", "acquire").call(), name="conn")
                                     .body()
                                 ):
                                     args = [
@@ -60,6 +60,9 @@ class SQLCastCodeGenerator(SQLCodeGenerator):
                                             target="rows",
                                             value=scope.attr("conn", "fetch").call(args=args).await_(),
                                         )
+
+                                    else:
+                                        t.assert_never(query.fetch)
 
         return CodeGeneratorResult(
             files=[

@@ -119,6 +119,7 @@ class SQLInspector:
 
     def __annotate(self, expressions: t.Sequence[Expression], schema: MappingSchema) -> t.Iterable[Expression]:
         for expr in expressions:
+            # TODO: support `insert`, `update`, `delete` and other statements.
             yield annotate_types(expr, schema=schema, annotators={**self.__dialect.ANNOTATORS}, dialect=self.__dialect)
 
     def __extract_table(self, expr: Expression) -> t.Optional[TableInfo]:
@@ -141,25 +142,24 @@ class SQLInspector:
             ],
             query=SimpleQueryInfo(
                 name=self.__extract_query_name(expr.comments),
-                statement=expr.sql(dialect=self.__dialect),
+                statement=expr.sql(dialect=self.__dialect, comments=False, pretty=False),
             ),
         )
 
     def __extract_query(self, expr: Expression) -> t.Optional[ParametrizedQueryInfo]:
         name, fetch = self.__extract_query_info(expr.comments)
 
-        # print(repr(expr))
-
         return ParametrizedQueryInfo(
             name=name,
             # TODO: replace placeholders (e.g. $1, $2, etc.)
             # TODO: consider param type cast in SQL
-            statement=expr.sql(dialect=self.__dialect),
+            statement=expr.sql(dialect=self.__dialect, comments=False, pretty=False),
             params=[
                 ParameterInfo(name=node.this, type_=self.__extract_param_type(node))
                 for node in expr.find_all(Placeholder)
             ],
             fetch=fetch if fetch is not None else "exec" if isinstance(expr, Create) else "many",
+            # TODO: add returning fields (select & returning)
             returns=RecordInfo(fields=()),
         )
 
@@ -179,6 +179,7 @@ class SQLInspector:
         elif isinstance(parent, (Limit, Offset)):
             return predef().int
 
+        # TODO: support more expressions
         else:
             warnings.warn(f"can't infer parameter type for {node!r}, continuing with any", RuntimeWarning)
             return predef().any
@@ -229,9 +230,6 @@ class SQLInspector:
 
         msg = "query name was not specified"
         raise ValueError(msg, comments)
-
-    def __has_sqlcast_marker(self, expr: Expression) -> bool:
-        return expr.comments and expr.comments[0].strip() == self.__MARKER
 
     @cached_property
     def __sql2py_type_map(self) -> t.Mapping[DataType.Type, TypeInfo]:

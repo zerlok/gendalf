@@ -101,10 +101,7 @@ def expected_output_paths(
     output_dir: Path,
     output_rglob: t.Optional[str],
 ) -> t.Sequence[Path]:
-    paths = [output_dir / "db" / "__init__.py"]
-    paths.extend((output_dir / "db").rglob(output_rglob if output_rglob is not None else "*.py"))
-
-    return paths
+    return list((output_dir / "db").rglob(output_rglob if output_rglob is not None else "*.py"))
 
 
 @pytest.fixture
