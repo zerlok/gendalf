@@ -22,7 +22,7 @@ from astlab.types import (
 
 from gendalf._typing import assert_never, override
 from gendalf.generator.dto.abc import DtoMapper, DuplexDtoMapper
-from gendalf.generator.dto.traverse import traverse_post_order
+from gendalf.traverse import traverse_dfs_post_order_map
 
 if t.TYPE_CHECKING:
     from dataclasses import Field
@@ -128,11 +128,11 @@ class PydanticDtoMapper(DtoMapper):
         return self.__mapper.build_dto_encode_expr(scope, dto, source)
 
     def __build_type_mapping(self, scope: ScopeASTBuilder, infos: t.Sequence[TypeInfo]) -> None:
-        for result in traverse_post_order(
+        for result in traverse_dfs_post_order_map(
             nodes=infos,
-            predicate=self.__check_if_not_mapped,
             transform=self.__process_domain_type,
             ancestors=self.__extract_dependencies,
+            predicate=self.__check_if_not_mapped,
         ):
             self.__domain_to_dto[result.domain] = result.mapping_factory(scope)
 

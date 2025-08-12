@@ -1,290 +1,321 @@
 from __future__ import annotations
 
 import typing as t
-from collections import deque
 from functools import singledispatchmethod
 
 from sqlglot import Schema, exp
-from sqlglot.optimizer.annotate_types import TypeAnnotator
+
+from gendalf.traverse import traverse_dfs_post_order
 
 T = t.TypeVar("T")
 
 
-class SQLAnnotator(TypeAnnotator):
+class SQLAnnotator:
     def __init__(self, schema: Schema) -> None:
-        super().__init__(schema)
-        self.unknown_type = exp.DataType.build("UNKNOWN")
-        self.unit_type = exp.DataType.build("UNIT", udt=True)
-        self.placeholder_type = exp.DataType.build("PLACEHOLDER", udt=True)
-        self.deferred = set[exp.Expression]()
+        self.__schema = schema
+        self.__unknown_type = exp.DataType.build("UNKNOWN")
+        self.__unit_type = exp.DataType.build("UNIT", udt=True)
 
-    def iter_annotated(self, expressions: t.Sequence[exp.Expression]) -> t.Iterator[exp.Expression]:
-        for expr in expressions:
-            print("expr", type(expr), expr)
-            for node in traverse_post_order(nodes=[expr], ancestors=exp.Expression.iter_expressions):
-                self.annotate(node)
-                print("node", type(node), node.type, node)
+    def annotate(self, expression: exp.Expression) -> exp.Expression:
+        # print("\n ---------------- EXPRESSION --------------- \n", type(expression), expression)
+        for node in traverse_dfs_post_order(nodes=[expression], ancestors=exp.Expression.iter_expressions):
+            self._annotate(node)
+            # print(f"node {type(node)} : {node.type} : '{node}'")
 
-            yield expr
+        return expression
 
     @singledispatchmethod
-    def annotate(self, node: exp.Expression) -> exp.Expression:
-        if node.this is not None:
-            node.type = node.this.type
+    def _annotate(self, node: exp.Expression) -> None:
+        msg = "unsupported expression"
+        raise TypeError(msg, node)
+
+    @_annotate.register
+    def _ignore_annotation(
+        self,
+        node: t.Union[
+            exp.Identifier,
+            exp.ColumnConstraint,
+            exp.ColumnConstraintKind,
+            exp.DataType,
+            exp.DataTypeParam,
+            exp.Alias,
+            exp.TableAlias,
+        ],
+    ) -> None:
+        pass
+
+    @_annotate.register
+    def _annotate_as_unit(self, node: t.Union[exp.Create, exp.Alter]) -> None:
+        self._set_type(node, self.__unit_type)
+
+    @_annotate.register
+    def _annotate_as_this(
+        self,
+        node: t.Union[
+            exp.From,
+            exp.Where,
+            exp.Group,
+            exp.Having,
+        ],
+    ) -> None:
+        self._set_type(node, node.this.type)
+
+    @_annotate.register
+    def _annotate_as_int(self, node: t.Union[exp.Limit, exp.Offset]) -> None:
+        self._set_type(node, exp.DataType.Type.INT)
+        self._resolve_placeholders(node, exp.DataType.Type.INT)
+
+    @_annotate.register
+    def _annotate_literal(self, node: exp.Literal) -> None:
+        if isinstance(node.this, str):
+            self._set_type(node, exp.DataType.Type.TEXT)
+
+        elif isinstance(node.this, float):
+            self._set_type(node, exp.DataType.Type.DOUBLE)
+
+        elif isinstance(node.this, int):
+            self._set_type(node, exp.DataType.Type.INT)
+
+        elif isinstance(node.this, bool):
+            self._set_type(node, exp.DataType.Type.BOOLEAN)
+
+        elif node.this is None:
+            # TODO: set type var => Null(T) and infer T from AST.
+            # self._set_type_var(node, [])
+            self._set_type(node, exp.DataType.Type.NULL)
+
         else:
-            node.type = self.unknown_type.copy()
+            msg = "unknown literal value type"
+            raise TypeError(msg, node)
 
-        return node
+    @_annotate.register
+    def _annotate_current_timestamp(self, node: exp.CurrentTimestamp) -> None:
+        self._set_type(node, exp.DataType.Type.TIMESTAMP)
 
-    @annotate.register
-    def _annotate_data_type(self, node: exp.DataType) -> exp.DataType:
-        return node
+    @_annotate.register
+    def _annotate_column(self, node: exp.Column) -> None:
+        schema = node
 
-    annotate.register(TypeAnnotator._annotate_literal)
+        # FIXME: make it work for columns in where clause in select statement
+        while not isinstance(schema.this, exp.Schema):
+            schema = schema.parent
 
-    @annotate.register
-    def _annotate_identifier(self, node: exp.Identifier) -> exp.Identifier:
-        parent = node.parent
+        table = self._get_table_name(schema.this)
+        self._set_type(node, self.__schema.get_column_type(table, node.this))
 
-        if isinstance(parent, exp.ColumnDef):
-            table = self._get_table_name(parent)
-            node.type = self.schema.get_column_type(table, node.this)
+    @_annotate.register
+    def _annotate_column_def(self, node: exp.ColumnDef) -> None:
+        schema = node
 
-        elif isinstance(parent, exp.Column):
-            table = parent.table
-            node.type = self.schema.get_column_type(table, node.this)
+        while not isinstance(schema, (exp.Schema, exp.Table)):
+            schema = schema.parent
 
-        elif isinstance(parent, exp.Schema):
-            table = self._get_schema_table_name(parent)
-            node.type = exp.DataType(
-                this=exp.DataType.Type.STRUCT,
-                fields=[
-                    exp.ColumnDef(
-                        this=col,
-                        kind=self.schema.get_column_type(table, col.this),
-                        struct=True,
-                    )
-                    for col in parent.expressions
-                ],
-                nested=True,
-            )
+        table = self._get_table_name(schema)
+        self._set_type(node, self.__schema.get_column_type(table, node.this))
 
-        elif isinstance(parent, exp.Table):
-            node.type = exp.DataType(
-                this=exp.DataType.Type.STRUCT,
-                fields=[
-                    exp.ColumnDef(
-                        this=exp.to_identifier(column),
-                        kind=self.schema.get_column_type(node.this, column),
-                        struct=True,
-                    )
-                    for column in self.schema.column_names(node.this)
-                ],
-                nested=True,
-            )
-
-        else:
-            raise TypeError(parent)
-
-        return node
-
-    # @annotate.register
-    # def _annotate_table(self, node: exp.Table) -> exp.Table:
-    #     # table = node.this.this.this
-    #     node.type = exp.DataType(
-    #         this=exp.DataType.Type.STRUCT,
-    #         # expressions=[
-    #         #     exp.ColumnDef(
-    #         #         this=exp.to_identifier(name),
-    #         #         kind=self.schema.get_column_type(table, name),
-    #         #     )
-    #         #     for name in self.schema.column_names(table)
-    #         # ],
-    #         expressions=[
-    #             col if isinstance(col, exp.ColumnDef) else exp.ColumnDef(this=col.this, kind=col.type)
-    #             for col in node.expressions
-    #         ],
-    #         nested=True,
-    #     )
-    #
-    #     return node
-
-    # @annotate.register
-    # def _annotate_schema(self, node: exp.Schema) -> exp.Schema:
-    #     # table = node.this.this.this
-    #     node.type = exp.DataType(
-    #         this=exp.DataType.Type.STRUCT,
-    #         # expressions=[
-    #         #     exp.ColumnDef(
-    #         #         this=exp.to_identifier(name),
-    #         #         kind=self.schema.get_column_type(table, name),
-    #         #     )
-    #         #     for name in self.schema.column_names(table)
-    #         # ],
-    #         expressions=[
-    #             col if isinstance(col, exp.ColumnDef) else exp.ColumnDef(this=col.this, kind=col.type)
-    #             for col in node.expressions
-    #         ],
-    #         nested=True,
-    #     )
-    #
-    #     return node
-
-    @annotate.register
-    def _annotate_placeholder(self, node: exp.Placeholder) -> exp.Placeholder:
-        # Context-dependent: parent has been visited last, so we are in it now
-        # parent = node.parent
-        #
-        # if isinstance(parent, (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Like, exp.ILike)):
-        #     other = parent.left if parent.right is node else parent.right
-        #     node.type = other.type
-        #
-        # else:
-        #     self.deferred.add(node)
-        node.type = self.placeholder_type.copy()
-        return node
-
-    # @annotate.register
-    # def _annotate_column(self, node: exp.Column) -> exp.Column:
-    #     node.type = node.this.type
-    #
-    #     return node
-
-    @annotate.register
-    def _annotate_select(self, node: exp.Select) -> exp.Select:
-        node.expressions
-        node.this
-        raise Exception(node)
-
-    @annotate.register
-    def _annotate_tuple(self, node: exp.Tuple) -> exp.Tuple:
-        node.type = exp.DataType(
-            this=exp.DataType.Type.STRUCT,
-            fields=[exp.ColumnDef(this=inner.this, kind=inner.type, struct=True) for inner in node.expressions],
-            nested=True,
+    @_annotate.register
+    def _annotate_table(self, node: exp.Table) -> None:
+        table = self._get_table_name(node)
+        self._set_struct_type(
+            node,
+            [
+                exp.ColumnDef(this=exp.to_identifier(column), kind=self.__schema.get_column_type(table, column))
+                for column in self.__schema.column_names(table)
+            ],
         )
 
-        return node
+    @_annotate.register
+    def _annotate_schema(self, node: exp.Schema) -> None:
+        table = self._get_table_name(node)
+        self._set_struct_type_from_expressions(table, node)
 
-    @annotate.register
-    def _annotate_returning(self, node: exp.Returning) -> exp.Returning:
-        node.type = exp.DataType(
-            this=exp.DataType.Type.STRUCT,
-            fields=[exp.ColumnDef(this=col.this, kind=col.type, struct=True) for col in node.expressions],
-            nested=True,
-        )
+    @_annotate.register
+    def _annotate_placeholder(self, node: exp.Placeholder) -> None:
+        self._set_type_var(node, node.copy())
 
-        return node
+    @_annotate.register
+    def _annotate_tuple(self, node: exp.Tuple) -> None:
+        self._set_type(node, "Tuple", [inner.type for inner in node.expressions])
 
-    @annotate.register
-    def _annotate_insert(self, node: exp.Insert) -> exp.Insert:
+    @_annotate.register
+    def _annotate_array(self, node: exp.Array) -> None:
+        self._set_type(node, exp.DataType.Type.ARRAY, [inner.type for inner in node.expressions])
+
+    @_annotate.register
+    def _annotate_values(self, node: exp.Values) -> None:
+        self._set_type(node, exp.DataType.Type.ARRAY, [inner.type for inner in node.expressions])
+
+    @_annotate.register
+    def _annotate_returning(self, node: exp.Returning) -> None:
+        schema = node
+
+        while not isinstance(schema.this, (exp.Schema, exp.Table)):
+            schema = schema.parent
+
+        table = self._get_table_name(schema.this)
+        self._set_struct_type_from_expressions(table, node)
+
+    @_annotate.register
+    def _annotate_select(self, node: exp.Select) -> None:
+        from_ = node.args.get("from")
+        # alias => column => from
+        if isinstance(from_, exp.From):
+            columns = self._get_struct_columns(from_)
+            self._set_struct_type(
+                node,
+                [
+                    exp.ColumnDef(this=exp.to_identifier(col.alias_or_name), kind=columns[self._get_column_name(col)])
+                    for col in node.expressions
+                    if isinstance(col, (exp.Column, exp.Alias))
+                ],
+            )
+
+        # where = node.args.get("where")
+        # if where is not None:
+        #     self._resolve_placeholders(where, from_)
+
+    @_annotate.register
+    def _annotate_insert(self, node: exp.Insert) -> None:
+        # TODO: check where part
         schema = node.this
         values = node.expression.expressions
-        # returning = node.args.get("returning") or []
 
-        for col, val in zip(schema.expressions, values):
-            val.type = self.schema.get_column_type(schema.this.this, col.this)
+        for val in values:
+            self._resolve_placeholders(val, schema.type)
 
-        # for col in returning.expressions:
-        #     col.type = self.schema.get_column_type(schema.this.this, col.this.this)
+        returning = node.args.get("returning")
+        if isinstance(returning, exp.Returning):
+            node.type = returning.type
 
-        return node
+    @_annotate.register
+    def _annotate_update(self, node: exp.Update) -> None:
+        # TODO: check where part
+        for assign in node.expressions:
+            self._resolve_placeholders(assign, assign.this.type)
 
-    # @annotate.register
-    # def _annotate_update(self, node: exp.Update) -> exp.Update:
-    #     for assignment in node.args.get("expressions", []):
-    #         col = assignment.args.get("this")
-    #         val = assignment.args.get("expression")
-    #         col_type = self.schema.get_column_type(..., col)
-    #         val.type = col_type
-    #
-    # @annotate.register
-    # def _annotate_delete(self, node: exp.Delete) -> exp.Delete:
-    #     for assignment in node.args.get("expressions", []):
-    #         col = assignment.args.get("this")
-    #         val = assignment.args.get("expression")
-    #         col_type = self.schema.get_column_type(..., col)
-    #         val.type = col_type
+    @_annotate.register
+    def _annotate_delete(self, node: exp.Delete) -> None:
+        # TODO: check where part
+        returning = node.args.get("returning")
+        if isinstance(returning, exp.Returning):
+            node.type = returning.type
 
-    # # 3) Statement handling
-    # if isinstance(node, (exp.Insert, exp.Update, exp.Delete, exp.Copy)):
-    #     self._annotate_statement(node)
-    #     node.type = self.unit_type.copy()
-    #     return node.type
-    #
-    # # 4) Expression op / function
-    # if isinstance(node, exp.Func):
-    #     node.type = self._annotate_function(node)
-    #     return node.type
-    #
-    # if isinstance(node, exp.Binary):
-    #     node.type = self._annotate_binary(node)
-    #     return node.type
-    #
-    # # 5) Default: inherit from children or unit
-    # node.type = node.this.type
-    # return node.type
-
-    def _annotate_function(self, node: exp.Func) -> exp.DataType:
+    @_annotate.register
+    def _annotate_function(self, node: exp.Func) -> None:
         # Simplified: check function registry or return generic
-        return self.unknown_type.copy()
+        raise NotImplementedError(node)
 
-    def _annotate_binary(self, node: exp.Binary) -> exp.DataType:
+    # TODO: support more operators and more type inference cases
+    @_annotate.register
+    def _annotate_binary(self, node: exp.Binary) -> None:
         if isinstance(node, (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Like, exp.ILike)):
-            return exp.DataType.build(exp.DataType.Type.BOOLEAN)
-        return self.unknown_type.copy()
+            node.type = exp.DataType(this=exp.DataType.Type.BOOLEAN)
+            # case 1: right has placeholders => infer type from left type + binary operator signature
+            self._resolve_placeholders(node.right, node.left.type)
+            # case 2: left has placeholders => infer type from right type + binary operator signature
+            # ...
+            # case 3: left and right has placeholders => infer type from binary operator signature
+            # ...
+            # case 4: assign type vars to operator
+            # ...
 
-    def _get_table_name(self, node: exp.Expression) -> str:
-        while not isinstance(node.this, exp.Schema):
-            node = node.parent
-
-        return self._get_schema_table_name(node.this)
-
-    def _get_schema_table_name(self, node: exp.Schema) -> str:
-        table = node.this
-        assert isinstance(table, exp.Table)
-        table_id = table.this
-        assert isinstance(table_id, exp.Identifier)
-        name = table_id.this
-        assert isinstance(name, str)
-        return name
-
-    # @_extract_nested.register
-    # def _extract_nested_schema(self, node: exp.Schema) -> t.Sequence[exp.Expression]:
-    #     return []
-
-    # def _extract_nested(self, node: exp.Expression) -> t.Sequence[exp.Expression]:
-    #     ancestors = list[exp.Expression]()
-    #
-    #     for key, value in node.args.items():
-    #         if isinstance(value, exp.Expression):
-    #             ancestors.append(value)
-    #
-    #         elif isinstance(value, t.Iterable):
-    #             ancestors.extend(item for item in value if isinstance(item, exp.Expression))
-    #
-    #     return ancestors
-
-
-def traverse_post_order(
-    *,
-    nodes: t.Sequence[T],
-    ancestors: t.Callable[[T], t.Iterable[T]],
-) -> t.Iterable[T]:
-    stack = deque[tuple[T, bool]]([(node, False) for node in nodes])
-    visited = set[T]()
-
-    while stack:
-        node, processed = stack.pop()
-        if node in visited:
-            continue
-
-        if processed:
-            visited.add(node)
-            yield node
+    def _set_type(
+        self,
+        node: exp.Expression,
+        dtype: t.Optional[t.Union[str, exp.DataType, exp.DataType.Type]],
+        params: t.Optional[t.Sequence[exp.Expression]] = None,
+    ) -> None:
+        if dtype is not None:
+            node.type = exp.DataType.build(
+                dtype=dtype,
+                expressions=[exp.DataTypeParam(this=param) for param in (params or ())],
+                udt=isinstance(dtype, str),
+            )
 
         else:
-            stack.append((node, True))
-            stack.extend(
-                (ancestor, False) for ancestor in ancestors(node) if ancestor is not node and ancestor not in visited
-            )
+            raise ValueError(node.parent.parent, type(node), node)
+            node.type = self.__unknown_type.copy()
+
+    def _set_type_var(self, node: exp.Expression, *params: exp.Expression) -> None:
+        self._set_type(node, "TypeVar", params)
+
+    def _set_struct_type(self, node: exp.Expression, columns: t.Sequence[exp.ColumnDef]) -> None:
+        self._set_type(node, exp.DataType(this=exp.DataType.Type.STRUCT, expressions=columns))
+
+    def _set_struct_type_from_expressions(self, table: str, node: exp.Expression) -> None:
+        self._set_struct_type(
+            node,
+            [
+                self._build_column_def(table, col)
+                for col in node.expressions
+                if isinstance(col, (exp.Identifier, exp.Column, exp.ColumnDef))
+            ],
+        )
+
+    def _build_column_def(self, table: str, node: exp.Expression) -> exp.ColumnDef:
+        if isinstance(node, exp.Identifier):
+            this = node
+            kind = self.__schema.get_column_type(table, node.this)
+
+        elif isinstance(node, exp.Column):
+            this = self._get_column_id(node)
+            kind = self.__schema.get_column_type(table, self._get_column_name(node))
+
+        elif isinstance(node, exp.ColumnDef):
+            this = node.this
+            kind = node.kind
+
+        else:
+            this = node.this
+            kind = node.type
+
+        return exp.ColumnDef(this=this, kind=kind)
+
+    def _get_table_id(self, node: exp.Expression) -> exp.Identifier:
+        while not isinstance(node, exp.Table):
+            node = node.this
+
+        table_id = node.this
+        assert isinstance(table_id, exp.Identifier)
+
+        return table_id
+
+    def _get_table_name(self, node: exp.Expression) -> str:
+        table_id = self._get_table_id(node)
+
+        name = table_id.this
+        assert isinstance(name, str)
+
+        return name
+
+    def _get_column_id(self, node: exp.Expression) -> exp.Identifier:
+        while not isinstance(node, exp.Column):
+            node = node.this
+
+        col_id = node.this
+        assert isinstance(col_id, exp.Identifier)
+
+        return col_id
+
+    def _get_column_name(self, node: exp.Expression) -> str:
+        col_id = self._get_column_id(node)
+        name = col_id.this
+        assert isinstance(name, str)
+
+        return name
+
+    def _get_struct_columns(self, node: exp.Expression) -> t.Mapping[str, exp.DataType]:
+        assert node.type.is_type(exp.DataType.Type.STRUCT)
+        return {col.name: col.kind for col in node.type.expressions if isinstance(col, exp.ColumnDef)}
+
+    def _resolve_placeholders(self, expr: exp.Expression, dtype: t.Union[exp.DataType, exp.DataType.Type]) -> None:
+        if isinstance(expr, exp.Placeholder):
+            self._set_type(expr, dtype)
+
+        elif expr.expression is not None:
+            self._set_type(expr.expression, dtype)
+
+        else:
+            for node, col in zip(expr.expressions, dtype.expressions):
+                if isinstance(node, exp.Placeholder):
+                    self._set_type(node, col.kind)

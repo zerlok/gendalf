@@ -4,9 +4,10 @@ import warnings
 from dataclasses import replace
 from functools import cached_property
 from pathlib import Path
+from pprint import pprint
 
 from astlab.types import NamedTypeInfo, TypeInfo, predef
-from sqlglot import Dialect, Expression, MappingSchema, exp, parse
+from sqlglot import Dialect, MappingSchema, exp, parse
 from sqlglot.optimizer.qualify import qualify
 
 from gendalf.sql.annotator import SQLAnnotator
@@ -16,6 +17,7 @@ from gendalf.sql.model import (
     ParameterInfo,
     ParametrizedQueryInfo,
     RecordInfo,
+    SimpleFieldInfo,
     SimpleQueryInfo,
     SQLInfo,
     TableInfo,
@@ -40,12 +42,14 @@ class SQLInspector:
             tables = list[TableInfo]()
             queries = list[ParametrizedQueryInfo]()
 
-            for expr in annotator.iter_annotated(expressions):
-                table = self.__extract_table(expr)
+            for original, normalized in expressions:
+                annotated = annotator.annotate(normalized)
+
+                table = self.__extract_table(original, annotated)
                 if table is not None:
                     tables.append(table)
 
-                query = self.__extract_query(expr)
+                query = self.__extract_query(original, annotated)
                 if query is not None:
                     queries.append(query)
 
@@ -56,11 +60,11 @@ class SQLInspector:
                 queries=queries,
             )
 
-    def __parse(self, path: Path) -> t.Sequence[Expression]:
-        return [self.__normalize(expr) for expr in parse(path.read_text(), dialect=self.__dialect)]
+    def __parse(self, path: Path) -> t.Sequence[tuple[exp.Expression, exp.Expression]]:
+        return [(expr, self.__normalize(expr)) for expr in parse(path.read_text(), dialect=self.__dialect)]
 
-    def __normalize(self, expr: Expression) -> Expression:
-        qualified = qualify(expr, dialect=self.__dialect)
+    def __normalize(self, expr: exp.Expression) -> exp.Expression:
+        qualified = qualify(expr.copy(), dialect=self.__dialect)
 
         for node in expr.dfs():
             if isinstance(node, exp.ColumnDef):
@@ -71,10 +75,6 @@ class SQLInspector:
                     )
                     node.kind.set("nullable", nullable)
 
-            elif isinstance(node, exp.Column):
-                if not node.table:
-                    node.set("table", self.__get_table_id(node))
-
         return qualified
 
     def __get_table_id(self, node: exp.Expression) -> exp.Identifier:
@@ -83,20 +83,23 @@ class SQLInspector:
 
         return node.this.this.this
 
-    def __build_schema(self, parsed: t.Sequence[tuple[Path, t.Sequence[Expression]]]) -> MappingSchema:
+    def __build_schema(
+        self,
+        parsed: t.Sequence[tuple[Path, t.Sequence[tuple[exp.Expression, exp.Expression]]]],
+    ) -> MappingSchema:
         schema = MappingSchema(dialect=self.__dialect)
 
         for _, expressions in parsed:
-            for expr in expressions:
+            for _, normalized in expressions:
                 if (
-                    not isinstance(expr, exp.Create)
-                    or not isinstance(expr.this, exp.Schema)
-                    or not isinstance(expr.this.this, exp.Table)
+                    not isinstance(normalized, exp.Create)
+                    or not isinstance(normalized.this, exp.Schema)
+                    or not isinstance(normalized.this.this, exp.Table)
                 ):
                     continue
 
-                schema_expr: exp.Schema = expr.this
-                table_expr: exp.Table = expr.this.this
+                schema_expr: exp.Schema = normalized.this
+                table_expr: exp.Table = normalized.this.this
 
                 schema.add_table(
                     table=table_expr,
@@ -105,7 +108,7 @@ class SQLInspector:
 
         return schema
 
-    def __extract_table(self, expr: Expression) -> t.Optional[TableInfo]:
+    def __extract_table(self, original: exp.Expression, expr: exp.Expression) -> t.Optional[TableInfo]:
         if (
             not isinstance(expr, exp.Create)
             or not isinstance(expr.this, exp.Schema)
@@ -129,49 +132,36 @@ class SQLInspector:
             ],
             query=SimpleQueryInfo(
                 name=self.__extract_query_name(expr.comments),
-                statement=expr.sql(dialect=self.__dialect, comments=False, pretty=False),
+                statement=original.sql(dialect=self.__dialect, comments=False, pretty=False),
             ),
         )
 
-    def __extract_query(self, expr: Expression) -> t.Optional[ParametrizedQueryInfo]:
+    def __extract_query(self, original: exp.Expression, expr: exp.Expression) -> t.Optional[ParametrizedQueryInfo]:
         name, fetch = self.__extract_query_info(expr.comments)
 
         return ParametrizedQueryInfo(
             name=name,
             # TODO: replace placeholders (e.g. $1, $2, etc.)
             # TODO: consider param type cast in SQL
-            statement=expr.sql(dialect=self.__dialect, comments=False, pretty=False),
+            statement=original.sql(dialect=self.__dialect, comments=False, pretty=False),
             params=[
-                ParameterInfo(name=node.this, type_=self.__extract_param_type(node))
+                ParameterInfo(name=node.this, type_=self.__extract_expression_type(node))
                 for node in expr.find_all(exp.Placeholder)
             ],
             fetch=fetch if fetch is not None else "exec" if isinstance(expr, exp.Create) else "many",
             # TODO: add returning fields (select & returning)
-            returns=RecordInfo(fields=()),
+            returns=RecordInfo(
+                fields=[
+                    SimpleFieldInfo(
+                        type_=self.__extract_column_type(col),
+                        alias=col.name,
+                    )
+                    for col in expr.type.expressions
+                ]
+            ),
         )
 
-    def __extract_param_type(self, node: exp.Placeholder) -> TypeInfo:
-        parent = node.parent
-        if parent is None:
-            msg = "placeholder must be a part of expression"
-            raise ValueError(msg, node)
-
-        if isinstance(parent, (exp.Is, exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Like, exp.ILike)):
-            return (
-                self.__extract_expression_type(parent.this)
-                if parent.expression is node
-                else self.__extract_expression_type(parent.expression)
-            )
-
-        elif isinstance(parent, (exp.Limit, exp.Offset)):
-            return predef().int
-
-        # TODO: support more expressions
-        else:
-            warnings.warn(f"can't infer parameter type for {node!r}, continuing with any", RuntimeWarning)
-            return predef().any
-
-    def __extract_expression_type(self, node: Expression) -> TypeInfo:
+    def __extract_expression_type(self, node: exp.Expression) -> TypeInfo:
         if node.type is None:
             warnings.warn(f"can't extract {node!r} expression type, continuing with any", RuntimeWarning)
             return predef().any
@@ -179,20 +169,20 @@ class SQLInspector:
         return self.__extract_py_type(node.type)
 
     def __extract_column_type(self, column: t.Union[exp.Column, exp.ColumnDef]) -> TypeInfo:
-        if column.kind is None or column.kind.type is None:
+        if column.kind is None:
             warnings.warn(f"column {column!r} has no type info, continuing with any", RuntimeWarning)
             return predef().any
 
-        return self.__extract_py_type(column.kind.type)
+        return self.__extract_py_type(column.kind)
 
-    def __extract_py_type(self, type_: exp.DataType) -> TypeInfo:
-        py_type = self.__sql2py_type_map.get(type_.this)
+    def __extract_py_type(self, dtype: exp.DataType) -> TypeInfo:
+        py_type = self.__sql2py_type_map.get(dtype.this)
 
         if py_type is None:
-            warnings.warn(f"data type {type_!r} is not supported, continuing with any", RuntimeWarning)
+            warnings.warn(f"data type {dtype!r} is not supported, continuing with any", RuntimeWarning)
             return predef().any
 
-        if type_.args.get("nullable"):
+        if dtype.args.get("nullable"):
             py_type = replace(predef().optional, type_params=(py_type,))
 
         return py_type
@@ -244,3 +234,7 @@ class SQLInspector:
     @cached_property
     def __query_info_pattern(self) -> t.Pattern[str]:
         return re.compile(r"\s*name:\s*(?P<name>\w+)(?:\s*:(?P<fetch>exec|one|many))?")
+
+
+if __name__ == "__main__":
+    pprint(list(SQLInspector("postgres").inspect_source(Path("examples/my_greeter/src/my_service/db"))))
