@@ -7,8 +7,7 @@ from pathlib import Path
 from pprint import pprint
 
 from astlab.types import NamedTypeInfo, TypeInfo, predef
-from sqlglot import Dialect, MappingSchema, exp, parse
-from sqlglot.optimizer.qualify import qualify
+from sqlglot import Dialect, exp, parse
 
 from gendalf.sql.annotator import SQLAnnotator
 from gendalf.sql.model import (
@@ -28,6 +27,7 @@ class SQLInspector:
     def __init__(self, dialect: str) -> None:
         self.__dialect_name = dialect
         self.__dialect = Dialect.get_or_raise(self.__dialect_name)
+        self.__annotator = SQLAnnotator(self.__dialect)
 
     def inspect_source(self, source: Path) -> t.Iterable[SQLInfo]:
         return self.inspect_paths(source.rglob("*.sql"))
@@ -35,15 +35,17 @@ class SQLInspector:
     def inspect_paths(self, paths: t.Iterable[Path]) -> t.Iterable[SQLInfo]:
         parsed = [(path, self.__parse(path)) for path in paths]
 
-        schema = self.__build_schema(parsed)
-        annotator = SQLAnnotator(schema)
+        annotations = self.__build_annotations(parsed)
 
         for path, expressions in parsed:
             tables = list[TableInfo]()
             queries = list[ParametrizedQueryInfo]()
 
-            for original, normalized in expressions:
-                annotated = annotator.annotate(normalized)
+            for original in expressions:
+                annotated = annotations[original]
+
+                if annotated.type is None:
+                    continue
 
                 table = self.__extract_table(original, annotated)
                 if table is not None:
@@ -60,64 +62,26 @@ class SQLInspector:
                 queries=queries,
             )
 
-    def __parse(self, path: Path) -> t.Sequence[tuple[exp.Expression, exp.Expression]]:
-        return [(expr, self.__normalize(expr)) for expr in parse(path.read_text(), dialect=self.__dialect)]
+    def __parse(self, path: Path) -> t.Sequence[exp.Expression]:
+        return list(parse(path.read_text(), dialect=self.__dialect))
 
-    def __normalize(self, expr: exp.Expression) -> exp.Expression:
-        qualified = qualify(expr.copy(), dialect=self.__dialect)
-
-        for node in expr.dfs():
-            if isinstance(node, exp.ColumnDef):
-                if "nullable" not in node.kind.args:
-                    nullable = not any(
-                        isinstance(c.kind, (exp.PrimaryKeyColumnConstraint, exp.NotNullColumnConstraint))
-                        for c in node.constraints
-                    )
-                    node.kind.set("nullable", nullable)
-
-        return qualified
-
-    def __get_table_id(self, node: exp.Expression) -> exp.Identifier:
-        while not isinstance(node.this, exp.Schema) and node.parent is not None:
-            node = node.parent
-
-        return node.this.this.this
-
-    def __build_schema(
+    def __build_annotations(
         self,
-        parsed: t.Sequence[tuple[Path, t.Sequence[tuple[exp.Expression, exp.Expression]]]],
-    ) -> MappingSchema:
-        schema = MappingSchema(dialect=self.__dialect)
+        parsed: t.Sequence[tuple[Path, t.Sequence[exp.Expression]]],
+    ) -> t.Mapping[exp.Expression, exp.Expression]:
+        originals = [expression for _, expressions in parsed for expression in expressions]
+        return dict(zip(originals, self.__annotator.annotate(originals)))
 
-        for _, expressions in parsed:
-            for _, normalized in expressions:
-                if (
-                    not isinstance(normalized, exp.Create)
-                    or not isinstance(normalized.this, exp.Schema)
-                    or not isinstance(normalized.this.this, exp.Table)
-                ):
-                    continue
-
-                schema_expr: exp.Schema = normalized.this
-                table_expr: exp.Table = normalized.this.this
-
-                schema.add_table(
-                    table=table_expr,
-                    column_mapping={col: col.kind for col in schema_expr.expressions if isinstance(col, exp.ColumnDef)},
-                )
-
-        return schema
-
-    def __extract_table(self, original: exp.Expression, expr: exp.Expression) -> t.Optional[TableInfo]:
+    def __extract_table(self, original: exp.Expression, annotated: exp.Expression) -> t.Optional[TableInfo]:
         if (
-            not isinstance(expr, exp.Create)
-            or not isinstance(expr.this, exp.Schema)
-            or not isinstance(expr.this.this, exp.Table)
+            not isinstance(annotated, exp.Create)
+            or not isinstance(annotated.this, exp.Schema)
+            or not isinstance(annotated.this.this, exp.Table)
         ):
             return None
 
-        schema_expr: exp.Schema = expr.this
-        table_expr: exp.Table = expr.this.this
+        schema_expr: exp.Schema = annotated.this
+        table_expr: exp.Table = annotated.this.this
 
         return TableInfo(
             name=table_expr.name,
@@ -131,7 +95,7 @@ class SQLInspector:
                 if isinstance(column, exp.ColumnDef)
             ],
             query=SimpleQueryInfo(
-                name=self.__extract_query_name(expr.comments),
+                name=self.__extract_query_name(annotated.comments),
                 statement=original.sql(dialect=self.__dialect, comments=False, pretty=False),
             ),
         )

@@ -174,15 +174,17 @@ trio = ["trio (>=0.26.1)"]
 
 [[package]]
 name = "astlab"
-version = "0.4.2"
+version = "0.4.3"
 description = "provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code."
 optional = false
-python-versions = "<4.0,>=3.9"
+python-versions = "^3.9"
 groups = ["main"]
-files = [
-    {file = "astlab-0.4.2-py3-none-any.whl", hash = "sha256:31b0cbbd9188da332bd4859f4cc39ba3f982164279d66e928fe9501fded7800f"},
-    {file = "astlab-0.4.2.tar.gz", hash = "sha256:b1367b0bdf6c099fda088f4cfc75fa454fc65b7958d11aa0470c910d3fe034b5"},
-]
+files = []
+develop = true
+
+[package.source]
+type = "directory"
+url = "../astlab"
 
 [[package]]
 name = "async-timeout"
@@ -1658,4 +1660,4 @@ sql = ["sqlglot"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "df2115c06fd0b22203c10cb84d02521f8b2af5731364655780e1c3d8691aa6ce"
+content-hash = "ff12b0a8fc1b67989ef254f076a679eb9ee6c4e216a2938df136987c12f05612"

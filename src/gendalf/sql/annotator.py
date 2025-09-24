@@ -1,55 +1,201 @@
 from __future__ import annotations
 
 import typing as t
+import warnings
+from dataclasses import dataclass, field, replace
 from functools import singledispatchmethod
 
-from sqlglot import Schema, exp
+from sqlglot import Dialect, MappingSchema, Schema, exp
 
-from gendalf.traverse import traverse_dfs_post_order
+from gendalf.sql.types import ExpressionType
+from gendalf.traverse import DfsPostOrderTraversal, TraverseScope, TraverseStrategy
 
-T = t.TypeVar("T")
+
+class SQLTypeInfer:
+    pass
 
 
 class SQLAnnotator:
+    def __init__(self, dialect: Dialect, type_infer: SQLTypeInfer) -> None:
+        self.__dialect = dialect
+        self.__type_infer = type_infer
+
+    def annotate(self, expressions: t.Sequence[exp.Expression]) -> t.Iterable[exp.Expression]:
+        schema = self._build_schema(expressions)
+        traversal = DfsPostOrderTraversal(ExpressionTraverseBasedAnnotator(schema))
+
+        for expression in expressions:
+            print("\n ---------------- EXPRESSION --------------- \n", type(expression), expression)
+
+            annotated_expr = expression.copy()
+            for annotated in traversal.traverse(annotated_expr):
+                print(type(annotated.node), annotated.signatures, annotated.node)
+                self._annotate(annotated)
+
+            yield annotated_expr
+
+    def _build_schema(self, expressions: t.Sequence[exp.Expression]) -> Schema:
+        schema = MappingSchema()
+
+        for expression in expressions:
+            if (
+                not isinstance(expression, exp.Create)
+                or not isinstance(expression.this, exp.Schema)
+                or not isinstance(expression.this.this, exp.Table)
+            ):
+                continue
+
+            schema_expr: exp.Schema = expression.this
+            table_expr: exp.Table = expression.this.this
+
+            schema.add_table(
+                table=table_expr,
+                column_mapping={
+                    col: self._get_column_type(col) for col in schema_expr.expressions if isinstance(col, exp.ColumnDef)
+                },
+            )
+
+        return schema
+
+    def _get_column_type(self, node: exp.ColumnDef) -> exp.DataType:
+        if "nullable" not in node.kind.args:
+            nullable = not any(
+                isinstance(c.kind, (exp.PrimaryKeyColumnConstraint, exp.NotNullColumnConstraint))
+                for c in node.constraints
+            )
+
+            dtype = node.kind.copy()
+            dtype.set("nullable", nullable)
+
+        else:
+            dtype = node.kind
+
+        return dtype
+
+    def _annotate(self, annotated: Annotated) -> None:
+        if not annotated.signatures:
+            return
+
+        candidates = list[Signature]()
+        for signature in annotated.signatures:
+            # TODO: also validate type var lower bounds
+            if all(
+                operand.type.is_type(param, check_nullable=True)
+                for param, operand in zip(signature.parameters, annotated.operands)
+                if not isinstance(operand, exp.Placeholder)
+            ):
+                candidates.append(signature)
+
+        if not candidates:
+            warnings.warn("no candidates found", RuntimeWarning)
+            return
+
+        annotated.node.type = (
+            build_type("Union", [candidate.returns for candidate in candidates])
+            if len(candidates) > 1
+            else candidates[0].returns
+        )
+
+        for idx, operand in enumerate(annotated.operands):
+            if isinstance(operand.type, exp.Placeholder):
+                # TODO: move lower bound up
+                operand.type = (
+                    build_type("Union", [candidate.parameters[idx] for candidate in candidates])
+                    if len(candidates) > 1
+                    else candidates[0].parameters[idx]
+                )
+                # operand.type.set_type_var_bounds([candidate.parameters[idx] for candidate in candidates])
+
+
+@dataclass()
+class ExpressionScope:
+    table: str = field(default="")
+    columns: t.Mapping[str, exp.DataType] = field(default_factory=dict)
+    typer: t.Union[ExpressionType, t.Callable[[], ExpressionType], None] = field(default=None)
+
+
+@dataclass(frozen=True, kw_only=True)
+class Annotated:
+    node: exp.Expression
+    type_: ExpressionType
+
+
+class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, ExpressionScope, Annotated]):
     def __init__(self, schema: Schema) -> None:
         self.__schema = schema
-        self.__unknown_type = exp.DataType.build("UNKNOWN")
-        self.__unit_type = exp.DataType.build("UNIT", udt=True)
 
-    def annotate(self, expression: exp.Expression) -> exp.Expression:
-        # print("\n ---------------- EXPRESSION --------------- \n", type(expression), expression)
-        for node in traverse_dfs_post_order(nodes=[expression], ancestors=exp.Expression.iter_expressions):
-            self._annotate(node)
-            # print(f"node {type(node)} : {node.type} : '{node}'")
+    def filter(self, node: exp.Expression, parent: t.Optional[TraverseScope[exp.Expression, ExpressionScope]]) -> bool:
+        return not isinstance(
+            node,
+            (
+                exp.Identifier,
+                exp.ColumnConstraint,
+                exp.ColumnConstraintKind,
+                exp.DataType,
+                exp.DataTypeParam,
+                exp.Alias,
+                exp.TableAlias,
+                exp.Create,
+                exp.Alter,
+                exp.Placeholder,
+            ),
+        )
 
-        return expression
+    def enter(
+        self,
+        node: exp.Expression,
+        parent: t.Optional[TraverseScope[exp.Expression, ExpressionScope]],
+    ) -> ExpressionScope:
+        parent_scope = parent.entered if parent is not None else ExpressionScope()
+        node_scope = self._enter_node(node, parent_scope)
+
+        return node_scope if node_scope is not None else parent_scope
+
+    def descendants(
+        self,
+        node: exp.Expression,
+        entered: ExpressionScope,
+        parent: t.Optional[TraverseScope[exp.Expression, ExpressionScope]],
+    ) -> t.Iterable[exp.Expression]:
+        return node.iter_expressions()
+
+    def leave(
+        self,
+        node: exp.Expression,
+        entered: ExpressionScope,
+        parent: t.Optional[TraverseScope[exp.Expression, ExpressionScope]],
+    ) -> Annotated:
+        sig = (
+            entered.signature()
+            if callable(entered.signature)
+            else entered.signature
+            if entered.signature is not None
+            else None
+        )
+        dtype = entered.dtype() if callable(entered.dtype) else entered.dtype if entered.dtype is not None else None
+
+        return Annotated(
+            node=node,
+            signatures=([sig] if isinstance(sig, Signature) else sig)
+            if sig is not None
+            else [
+                Signature(
+                    parameters=[],
+                    returns=dtype if isinstance(dtype, exp.DataType) else exp.DataType(this=dtype),
+                )
+            ]
+            if dtype is not None
+            else None,
+            # placeholders=entered.placeholders,
+        )
 
     @singledispatchmethod
-    def _annotate(self, node: exp.Expression) -> None:
+    def _enter_node(self, node: exp.Expression, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
         msg = "unsupported expression"
-        raise TypeError(msg, node)
+        raise TypeError(msg, node, scope)
 
-    @_annotate.register
-    def _ignore_annotation(
-        self,
-        node: t.Union[
-            exp.Identifier,
-            exp.ColumnConstraint,
-            exp.ColumnConstraintKind,
-            exp.DataType,
-            exp.DataTypeParam,
-            exp.Alias,
-            exp.TableAlias,
-        ],
-    ) -> None:
-        pass
-
-    @_annotate.register
-    def _annotate_as_unit(self, node: t.Union[exp.Create, exp.Alter]) -> None:
-        self._set_type(node, self.__unit_type)
-
-    @_annotate.register
-    def _annotate_as_this(
+    @_enter_node.register
+    def _enter_this(
         self,
         node: t.Union[
             exp.From,
@@ -57,265 +203,253 @@ class SQLAnnotator:
             exp.Group,
             exp.Having,
         ],
-    ) -> None:
-        self._set_type(node, node.this.type)
+        scope: ExpressionScope,
+    ) -> t.Optional[ExpressionScope]:
+        def get_this_type() -> exp.DataType:
+            return node.this.type
 
-    @_annotate.register
-    def _annotate_as_int(self, node: t.Union[exp.Limit, exp.Offset]) -> None:
-        self._set_type(node, exp.DataType.Type.INT)
-        self._resolve_placeholders(node, exp.DataType.Type.INT)
+        return replace(scope, dtype=get_this_type)
 
-    @_annotate.register
-    def _annotate_literal(self, node: exp.Literal) -> None:
-        if isinstance(node.this, str):
-            self._set_type(node, exp.DataType.Type.TEXT)
+    @_enter_node.register
+    def _enter_int(
+        self,
+        node: t.Union[exp.Limit, exp.Offset],
+        scope: ExpressionScope,
+    ) -> t.Optional[ExpressionScope]:
+        return replace(scope, dtype=exp.DataType.Type.INT)
 
-        elif isinstance(node.this, float):
-            self._set_type(node, exp.DataType.Type.DOUBLE)
+    @_enter_node.register
+    def _enter_array(
+        self,
+        node: t.Union[exp.Array, exp.Values],
+        scope: ExpressionScope,
+    ) -> t.Optional[ExpressionScope]:
+        def build_array_type() -> exp.DataType:
+            return build_type(exp.DataType.Type.ARRAY, [node.expressions[0].type])
 
-        elif isinstance(node.this, int):
-            self._set_type(node, exp.DataType.Type.INT)
+        return replace(scope, dtype=build_array_type)
 
-        elif isinstance(node.this, bool):
-            self._set_type(node, exp.DataType.Type.BOOLEAN)
+    @_enter_node.register
+    def _enter_tuple(self, node: exp.Tuple, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        def build_tuple_type() -> exp.DataType:
+            return build_type("Tuple", [inner.type for inner in node.expressions])
 
-        elif node.this is None:
-            # TODO: set type var => Null(T) and infer T from AST.
-            # self._set_type_var(node, [])
-            self._set_type(node, exp.DataType.Type.NULL)
+        return replace(scope, dtype=build_tuple_type)
+
+    @_enter_node.register
+    def _enter_literal(self, node: exp.Literal, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        if node.is_int:
+            dtype = exp.DataType.Type.INT
+
+        elif node.is_number:
+            dtype = exp.DataType.Type.DOUBLE
+
+        elif node.is_string:
+            dtype = exp.DataType.Type.TEXT
 
         else:
             msg = "unknown literal value type"
             raise TypeError(msg, node)
 
-    @_annotate.register
-    def _annotate_current_timestamp(self, node: exp.CurrentTimestamp) -> None:
-        self._set_type(node, exp.DataType.Type.TIMESTAMP)
+        return replace(scope, dtype=dtype)
 
-    @_annotate.register
-    def _annotate_column(self, node: exp.Column) -> None:
-        schema = node
+    @_enter_node.register
+    def _enter_current_timestamp(
+        self,
+        node: exp.CurrentTimestamp,
+        scope: ExpressionScope,
+    ) -> t.Optional[ExpressionScope]:
+        return replace(scope, dtype=exp.DataType.Type.TIMESTAMPTZ)
 
-        # FIXME: make it work for columns in where clause in select statement
-        while not isinstance(schema.this, exp.Schema):
-            schema = schema.parent
+    @_enter_node.register
+    def _enter_column(self, node: exp.Column, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        table = node.table
+        column = self._get_this_name(node)
 
-        table = self._get_table_name(schema.this)
-        self._set_type(node, self.__schema.get_column_type(table, node.this))
+        if table:
+            dtype = self.__schema.get_column_type(table, column)
 
-    @_annotate.register
-    def _annotate_column_def(self, node: exp.ColumnDef) -> None:
-        schema = node
+        elif scope is not None:
+            dtype = scope.columns.get(column)
 
-        while not isinstance(schema, (exp.Schema, exp.Table)):
-            schema = schema.parent
+        else:
+            dtype = None
 
-        table = self._get_table_name(schema)
-        self._set_type(node, self.__schema.get_column_type(table, node.this))
+        return replace(scope, dtype=dtype)
 
-    @_annotate.register
-    def _annotate_table(self, node: exp.Table) -> None:
-        table = self._get_table_name(node)
-        self._set_struct_type(
-            node,
-            [
-                exp.ColumnDef(this=exp.to_identifier(column), kind=self.__schema.get_column_type(table, column))
-                for column in self.__schema.column_names(table)
-            ],
+    @_enter_node.register
+    def _enter_column_def(self, node: exp.ColumnDef, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        # node.type = node.kind
+        return None
+
+    @_enter_node.register
+    def _enter_table(self, node: exp.Table, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        # return AnnContext(scope=self._build_scope(node))
+        return None
+
+    @_enter_node.register
+    def _enter_schema(self, node: exp.Schema, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        return None
+
+    # @_enter_node.register
+    # def _enter_placeholder(self, node: exp.Placeholder, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+    #     return replace(
+    #         scope,
+    #         dtype=build_type("TypeVar", [node.copy()]),
+    #         placeholders=[node],
+    #     )
+
+    @_enter_node.register
+    def _enter_returning(self, node: exp.Returning, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        dtype = build_struct_type(
+            (
+                col.name,
+                self.__schema.get_column_type(col.table, col.name) if col.table else scope.columns.get(col.name),
+            )
+            for col in node.expressions
         )
 
-    @_annotate.register
-    def _annotate_schema(self, node: exp.Schema) -> None:
-        table = self._get_table_name(node)
-        self._set_struct_type_from_expressions(table, node)
+        return replace(scope, dtype=dtype)
 
-    @_annotate.register
-    def _annotate_placeholder(self, node: exp.Placeholder) -> None:
-        self._set_type_var(node, node.copy())
+    @_enter_node.register
+    def _enter_select(self, node: exp.Select, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        # TODO: WHERE block
+        # TODO: GROUP BY block
+        # TODO: HAVING block
 
-    @_annotate.register
-    def _annotate_tuple(self, node: exp.Tuple) -> None:
-        self._set_type(node, "Tuple", [inner.type for inner in node.expressions])
-
-    @_annotate.register
-    def _annotate_array(self, node: exp.Array) -> None:
-        self._set_type(node, exp.DataType.Type.ARRAY, [inner.type for inner in node.expressions])
-
-    @_annotate.register
-    def _annotate_values(self, node: exp.Values) -> None:
-        self._set_type(node, exp.DataType.Type.ARRAY, [inner.type for inner in node.expressions])
-
-    @_annotate.register
-    def _annotate_returning(self, node: exp.Returning) -> None:
-        schema = node
-
-        while not isinstance(schema.this, (exp.Schema, exp.Table)):
-            schema = schema.parent
-
-        table = self._get_table_name(schema.this)
-        self._set_struct_type_from_expressions(table, node)
-
-    @_annotate.register
-    def _annotate_select(self, node: exp.Select) -> None:
         from_ = node.args.get("from")
-        # alias => column => from
         if isinstance(from_, exp.From):
-            columns = self._get_struct_columns(from_)
-            self._set_struct_type(
-                node,
-                [
-                    exp.ColumnDef(this=exp.to_identifier(col.alias_or_name), kind=columns[self._get_column_name(col)])
-                    for col in node.expressions
-                    if isinstance(col, (exp.Column, exp.Alias))
-                ],
+            scope = self._build_scope(from_, scope)
+
+        def build_select_type() -> exp.DataType:
+            # TODO: alias => column => from
+            return build_struct_type(
+                (
+                    col.name,
+                    self.__schema.get_column_type(col.table, col.name) if col.table else scope.columns.get(col.name),
+                )
+                for col in node.expressions
             )
 
-        # where = node.args.get("where")
-        # if where is not None:
-        #     self._resolve_placeholders(where, from_)
+        return replace(scope, dtype=build_select_type)
 
-    @_annotate.register
-    def _annotate_insert(self, node: exp.Insert) -> None:
-        # TODO: check where part
-        schema = node.this
-        values = node.expression.expressions
-
-        for val in values:
-            self._resolve_placeholders(val, schema.type)
+    @_enter_node.register
+    def _enter_insert(self, node: exp.Insert, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        # TODO: FROM block
+        # TODO: WHERE block
+        scope = self._build_scope(node, scope)
 
         returning = node.args.get("returning")
         if isinstance(returning, exp.Returning):
             node.type = returning.type
 
-    @_annotate.register
-    def _annotate_update(self, node: exp.Update) -> None:
-        # TODO: check where part
-        for assign in node.expressions:
-            self._resolve_placeholders(assign, assign.this.type)
+        def build_insert_type() -> t.Optional[exp.DataType]:
+            return returning.type if returning is not None else None
 
-    @_annotate.register
-    def _annotate_delete(self, node: exp.Delete) -> None:
-        # TODO: check where part
+        return replace(scope, dtype=build_insert_type)
+
+    @_enter_node.register
+    def _enter_update(self, node: exp.Update, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        # TODO: SET block
+        # TODO: WHERE block
+        scope = self._build_scope(node, scope)
+
         returning = node.args.get("returning")
         if isinstance(returning, exp.Returning):
             node.type = returning.type
 
-    @_annotate.register
-    def _annotate_function(self, node: exp.Func) -> None:
+        def build_update_type() -> t.Optional[exp.DataType]:
+            return returning.type if returning is not None else None
+
+        return replace(scope, dtype=build_update_type)
+
+    @_enter_node.register
+    def _enter_delete(self, node: exp.Delete, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        # TODO: WHERE block
+        scope = self._build_scope(node, scope)
+
+        returning = node.args.get("returning")
+        if isinstance(returning, exp.Returning):
+            node.type = returning.type
+
+        def build_update_type() -> t.Optional[exp.DataType]:
+            return returning.type if returning is not None else None
+
+        return replace(scope, dtype=build_update_type)
+
+    @_enter_node.register
+    def _enter_function(self, node: exp.Func, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
         # Simplified: check function registry or return generic
         raise NotImplementedError(node)
 
-    # TODO: support more operators and more type inference cases
-    @_annotate.register
-    def _annotate_binary(self, node: exp.Binary) -> None:
-        if isinstance(node, (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE, exp.Like, exp.ILike)):
-            node.type = exp.DataType(this=exp.DataType.Type.BOOLEAN)
-            # case 1: right has placeholders => infer type from left type + binary operator signature
-            self._resolve_placeholders(node.right, node.left.type)
-            # case 2: left has placeholders => infer type from right type + binary operator signature
-            # ...
-            # case 3: left and right has placeholders => infer type from binary operator signature
-            # ...
-            # case 4: assign type vars to operator
-            # ...
-
-    def _set_type(
+    @_enter_node.register
+    def _enter_binary_bool(
         self,
-        node: exp.Expression,
-        dtype: t.Optional[t.Union[str, exp.DataType, exp.DataType.Type]],
-        params: t.Optional[t.Sequence[exp.Expression]] = None,
-    ) -> None:
-        if dtype is not None:
-            node.type = exp.DataType.build(
-                dtype=dtype,
-                expressions=[exp.DataTypeParam(this=param) for param in (params or ())],
-                udt=isinstance(dtype, str),
-            )
-
-        else:
-            raise ValueError(node.parent.parent, type(node), node)
-            node.type = self.__unknown_type.copy()
-
-    def _set_type_var(self, node: exp.Expression, *params: exp.Expression) -> None:
-        self._set_type(node, "TypeVar", params)
-
-    def _set_struct_type(self, node: exp.Expression, columns: t.Sequence[exp.ColumnDef]) -> None:
-        self._set_type(node, exp.DataType(this=exp.DataType.Type.STRUCT, expressions=columns))
-
-    def _set_struct_type_from_expressions(self, table: str, node: exp.Expression) -> None:
-        self._set_struct_type(
-            node,
-            [
-                self._build_column_def(table, col)
-                for col in node.expressions
-                if isinstance(col, (exp.Identifier, exp.Column, exp.ColumnDef))
-            ],
+        node: t.Union[
+            exp.EQ,
+            exp.NEQ,
+            exp.LT,
+            exp.LTE,
+            exp.GT,
+            exp.GTE,
+        ],
+        scope: ExpressionScope,
+    ) -> t.Optional[ExpressionScope]:
+        type_var = build_type_var()
+        return replace(
+            scope,
+            operands=[node.left.type, node.right.type],
+            signature=Signature(
+                parameters=[type_var, type_var],
+                returns=build_type(exp.DataType.Type.BOOLEAN),
+            ),
         )
 
-    def _build_column_def(self, table: str, node: exp.Expression) -> exp.ColumnDef:
-        if isinstance(node, exp.Identifier):
-            this = node
-            kind = self.__schema.get_column_type(table, node.this)
+    @_enter_node.register
+    def _enter_binary_str(
+        self,
+        node: t.Union[
+            exp.Like,
+            exp.ILike,
+        ],
+        scope: ExpressionScope,
+    ) -> t.Optional[ExpressionScope]:
+        return replace(
+            scope,
+            operands=[node.left.type, node.right.type],
+            signature=Signature(
+                parameters=[build_type(exp.DataType.Type.TEXT), build_type(exp.DataType.Type.TEXT)],
+                returns=build_type(exp.DataType.Type.BOOLEAN),
+            ),
+        )
 
-        elif isinstance(node, exp.Column):
-            this = self._get_column_id(node)
-            kind = self.__schema.get_column_type(table, self._get_column_name(node))
+    def _build_scope(
+        self,
+        node: exp.Expression,
+        parent: ExpressionScope,
+        columns: t.Optional[t.Sequence[exp.Expression]] = None,
+    ) -> ExpressionScope:
+        table = self._get_this_name(node)
+        column_names: t.Sequence[str] = (
+            [self._get_this_name(col) for col in columns if isinstance(col, (exp.Identifier, exp.Column))]
+            if columns
+            else self.__schema.column_names(table)
+        )
 
-        elif isinstance(node, exp.ColumnDef):
-            this = node.this
-            kind = node.kind
+        return replace(
+            parent,
+            table=table,
+            columns={col: self.__schema.get_column_type(table, col) for col in column_names},
+        )
 
-        else:
-            this = node.this
-            kind = node.type
+    def _get_this_name(self, node: exp.Expression) -> str:
+        this_id = node
 
-        return exp.ColumnDef(this=this, kind=kind)
+        while not isinstance(this_id, exp.Identifier) and this_id is not None:
+            this_id = this_id.this
 
-    def _get_table_id(self, node: exp.Expression) -> exp.Identifier:
-        while not isinstance(node, exp.Table):
-            node = node.this
+        if this_id is None:
+            msg = "can't get name"
+            raise ValueError(msg, node)
 
-        table_id = node.this
-        assert isinstance(table_id, exp.Identifier)
-
-        return table_id
-
-    def _get_table_name(self, node: exp.Expression) -> str:
-        table_id = self._get_table_id(node)
-
-        name = table_id.this
-        assert isinstance(name, str)
-
-        return name
-
-    def _get_column_id(self, node: exp.Expression) -> exp.Identifier:
-        while not isinstance(node, exp.Column):
-            node = node.this
-
-        col_id = node.this
-        assert isinstance(col_id, exp.Identifier)
-
-        return col_id
-
-    def _get_column_name(self, node: exp.Expression) -> str:
-        col_id = self._get_column_id(node)
-        name = col_id.this
-        assert isinstance(name, str)
-
-        return name
-
-    def _get_struct_columns(self, node: exp.Expression) -> t.Mapping[str, exp.DataType]:
-        assert node.type.is_type(exp.DataType.Type.STRUCT)
-        return {col.name: col.kind for col in node.type.expressions if isinstance(col, exp.ColumnDef)}
-
-    def _resolve_placeholders(self, expr: exp.Expression, dtype: t.Union[exp.DataType, exp.DataType.Type]) -> None:
-        if isinstance(expr, exp.Placeholder):
-            self._set_type(expr, dtype)
-
-        elif expr.expression is not None:
-            self._set_type(expr.expression, dtype)
-
-        else:
-            for node, col in zip(expr.expressions, dtype.expressions):
-                if isinstance(node, exp.Placeholder):
-                    self._set_type(node, col.kind)
+        return this_id.this

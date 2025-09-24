@@ -12,7 +12,7 @@ create table if not exists users
 -- name: create_user :one
 insert into users (id, name)
 values (:user_id, :user_name)
-returning id, name, created_at;
+returning users.id, name, created_at;
 
 -- name: get_user_by_id :one
 select id, name, created_at

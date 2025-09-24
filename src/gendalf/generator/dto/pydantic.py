@@ -131,7 +131,7 @@ class PydanticDtoMapper(DtoMapper):
         for result in traverse_dfs_post_order_map(
             nodes=infos,
             transform=self.__process_domain_type,
-            ancestors=self.__extract_dependencies,
+            descendant=self.__extract_dependencies,
             predicate=self.__check_if_not_mapped,
         ):
             self.__domain_to_dto[result.domain] = result.mapping_factory(scope)
