@@ -11,3 +11,9 @@ class SessionInfo:
 class UserInfo:
     id_: int
     name: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class SystemInfo:
+    name: str
+    index: int

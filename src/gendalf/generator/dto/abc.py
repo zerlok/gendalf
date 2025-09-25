@@ -61,7 +61,7 @@ class InboundDtoMapper(metaclass=abc.ABCMeta):
     """
 
     @abc.abstractmethod
-    def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
+    def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeInfo, source: Expr) -> Expr:
         """
         Build DTO decode expression in the given scope.
 
@@ -104,7 +104,7 @@ class OutboundDtoMapper(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def build_dto_encode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
+    def build_dto_encode_expr(self, scope: ScopeASTBuilder, dto: TypeInfo, source: Expr) -> Expr:
         """
         Build DTO encode expression in the given scope.
 

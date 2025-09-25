@@ -51,6 +51,11 @@ class UsersClient:
             response = api.aiohttp.model.UsersFindByNameResponse.model_validate_json(await raw_response.read())
             return response
 
+    async def find_info_by_name(self, request: api.aiohttp.model.UsersFindInfoByNameRequest) -> api.aiohttp.model.UsersFindInfoByNameResponse:
+        async with self.__session.post(url='/users/find_info_by_name', json=request.model_dump(mode='json', by_alias=True, exclude_none=True)) as raw_response:
+            response = api.aiohttp.model.UsersFindInfoByNameResponse.model_validate_json(await raw_response.read())
+            return response
+
     async def register(self, request: api.aiohttp.model.UsersRegisterRequest) -> api.aiohttp.model.UsersRegisterResponse:
         async with self.__session.post(url='/users/register', json=request.model_dump(mode='json', by_alias=True, exclude_none=True)) as raw_response:
             response = api.aiohttp.model.UsersRegisterResponse.model_validate_json(await raw_response.read())

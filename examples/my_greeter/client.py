@@ -11,8 +11,13 @@ _LOGGER = logging.getLogger("client")
 
 
 def run_client_httpx_sync(host: str, port: int) -> None:
-    from api.fastapi.client import GreeterClient
-    from api.fastapi.model import GreeterGreetRequest, GreeterStreamGreetingsRequest, UserInfo
+    from api.fastapi.client import GreeterClient, UsersClient
+    from api.fastapi.model import (
+        GreeterGreetRequest,
+        GreeterStreamGreetingsRequest,
+        UserInfo,
+        UsersFindInfoByNameRequest,
+    )
 
     with httpx.Client(base_url=f"http://{host}:{port}") as client:
         greeter = GreeterClient(client)
@@ -32,10 +37,19 @@ def run_client_httpx_sync(host: str, port: int) -> None:
         for chunk in greeter.stream_greetings(iter_requests(), receive_timeout=1.0):
             _LOGGER.info(chunk.payload)
 
+        users = UsersClient(client)
+        found = users.find_info_by_name(UsersFindInfoByNameRequest(name="python"))
+        _LOGGER.info(found.payload)
+
 
 async def run_client_httpx_async(host: str, port: int) -> None:
-    from api.fastapi.client import GreeterAsyncClient
-    from api.fastapi.model import GreeterGreetRequest, GreeterStreamGreetingsRequest, UserInfo
+    from api.fastapi.client import GreeterAsyncClient, UsersAsyncClient
+    from api.fastapi.model import (
+        GreeterGreetRequest,
+        GreeterStreamGreetingsRequest,
+        UserInfo,
+        UsersFindInfoByNameRequest,
+    )
 
     async with httpx.AsyncClient(base_url=f"http://{host}:{port}") as client:
         greeter = GreeterAsyncClient(client)
@@ -55,10 +69,19 @@ async def run_client_httpx_async(host: str, port: int) -> None:
         async for chunk in greeter.stream_greetings(iter_requests()):
             _LOGGER.info(chunk.payload)
 
+        users = UsersAsyncClient(client)
+        found = await users.find_info_by_name(UsersFindInfoByNameRequest(name="python"))
+        _LOGGER.info(found.payload)
+
 
 async def run_client_aiohttp(host: str, port: int) -> None:
-    from api.aiohttp.client import GreeterClient
-    from api.aiohttp.model import GreeterGreetRequest, GreeterStreamGreetingsRequest, UserInfo
+    from api.aiohttp.client import GreeterClient, UsersClient
+    from api.aiohttp.model import (
+        GreeterGreetRequest,
+        GreeterStreamGreetingsRequest,
+        UserInfo,
+        UsersFindInfoByNameRequest,
+    )
 
     async with aiohttp.ClientSession(base_url=f"http://{host}:{port}") as session:
         greeter = GreeterClient(session)
@@ -77,6 +100,10 @@ async def run_client_aiohttp(host: str, port: int) -> None:
 
         async for chunk in greeter.stream_greetings(iter_requests()):
             _LOGGER.info(chunk.payload)
+
+        users = UsersClient(session)
+        found = await users.find_info_by_name(UsersFindInfoByNameRequest(name="python"))
+        _LOGGER.info(found.payload)
 
 
 def main() -> None:

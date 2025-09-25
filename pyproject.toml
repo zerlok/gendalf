@@ -27,7 +27,7 @@ gendalf = "gendalf.cli:cli"
 [tool.poetry.dependencies]
 python = "^3.9"
 click = { version = "^8.1.8", optional = true }
-astlab = "^0.4.2"
+astlab = "^0.4.3"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.13.0"
