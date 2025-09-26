@@ -3,7 +3,7 @@ import typing as t
 
 from gendalf.entrypoint.decorator import entrypoint
 from my_service.core.greeter.abc import MessageGenerator
-from my_service.core.greeter.model import UserInfo
+from my_service.core.greeter.model import SystemInfo, UserInfo
 
 
 @entrypoint
@@ -45,3 +45,9 @@ class UserManager:
                 return user
 
         return None
+
+    async def find_info_by_name(self, name: str) -> t.Union[UserInfo, SystemInfo, None]:
+        if name == "python":
+            return SystemInfo(name="python", index=0)
+
+        return await self.find_by_name(name)

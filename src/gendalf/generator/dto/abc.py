@@ -2,7 +2,7 @@ import abc
 import typing as t
 
 from astlab.abc import Expr, TypeRef
-from astlab.builder import ClassTypeRefBuilder, ScopeASTBuilder
+from astlab.builder import AttrASTBuilder, ClassTypeRefBuilder, ScopeASTBuilder
 from astlab.types import TypeInfo
 
 
@@ -61,7 +61,7 @@ class InboundDtoMapper(metaclass=abc.ABCMeta):
     """
 
     @abc.abstractmethod
-    def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
+    def build_dto_decode_expr(self, scope: ScopeASTBuilder, dto: TypeInfo, source: Expr) -> Expr:
         """
         Build DTO decode expression in the given scope.
 
@@ -73,7 +73,7 @@ class InboundDtoMapper(metaclass=abc.ABCMeta):
 
     # TODO: consider statements interface
     @abc.abstractmethod
-    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+    def build_dto_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: AttrASTBuilder) -> Expr:
         """
         Build mapping expression from the DTO type to domain type in the given scope.
 
@@ -93,7 +93,7 @@ class OutboundDtoMapper(metaclass=abc.ABCMeta):
     """
 
     @abc.abstractmethod
-    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+    def build_domain_to_dto_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: AttrASTBuilder) -> Expr:
         """
         Build mapping expression from the domain type to DTO type in the given scope.
 
@@ -104,7 +104,7 @@ class OutboundDtoMapper(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def build_dto_encode_expr(self, scope: ScopeASTBuilder, dto: TypeRef, source: Expr) -> Expr:
+    def build_dto_encode_expr(self, scope: ScopeASTBuilder, dto: TypeInfo, source: Expr) -> Expr:
         """
         Build DTO encode expression in the given scope.
 

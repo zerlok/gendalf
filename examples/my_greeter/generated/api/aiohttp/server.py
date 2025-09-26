@@ -5,7 +5,25 @@ import concurrent.futures
 import functools
 import my_service.core.greeter.greeter
 import my_service.core.greeter.model
+import my_service.core.structure
 import typing
+
+class StructureHandler:
+
+    def __init__(self, impl: my_service.core.structure.StructureController, executor: typing.Optional[concurrent.futures.Executor]=None) -> None:
+        self.__impl = impl
+        self.__executor = executor
+
+    async def complex(self, raw_request: aiohttp.web.Request) -> aiohttp.web.Response:
+        request = api.aiohttp.model.StructureComplexRequest.model_validate_json(await raw_request.read())
+        output = await self.__impl.complex()
+        response = api.aiohttp.model.StructureComplexResponse(payload=[api.aiohttp.model.ComplexStructure(items={output_item_items_key: api.aiohttp.model.Item(users=[api.aiohttp.model.UserInfo(id_=output_item_items_value_users_item.id_, name=output_item_items_value_users_item.name) for output_item_items_value_users_item in output_item_items_value.users]) for output_item_items_key, output_item_items_value in output_item.items.items()}) for output_item in output])
+        return aiohttp.web.json_response(data=response.model_dump(mode='json', by_alias=True, exclude_none=True))
+
+def add_structure_subapp(app: aiohttp.web.Application, handler: StructureHandler) -> None:
+    sub = aiohttp.web.Application()
+    sub.router.add_post(path='/complex', handler=handler.complex)
+    app.add_subapp(prefix='/structure', subapp=sub)
 
 class GreeterHandler:
 
@@ -60,6 +78,13 @@ class UsersHandler:
         response = api.aiohttp.model.UsersFindByNameResponse(payload=api.aiohttp.model.UserInfo(id_=output.id_, name=output.name) if output is not None else None)
         return aiohttp.web.json_response(data=response.model_dump(mode='json', by_alias=True, exclude_none=True))
 
+    async def find_info_by_name(self, raw_request: aiohttp.web.Request) -> aiohttp.web.Response:
+        request = api.aiohttp.model.UsersFindInfoByNameRequest.model_validate_json(await raw_request.read())
+        input_name = request.name
+        output = await self.__impl.find_info_by_name(name=input_name)
+        response = api.aiohttp.model.UsersFindInfoByNameResponse(payload=api.aiohttp.model.UserInfo(id_=output.id_, name=output.name) if isinstance(output, my_service.core.greeter.model.UserInfo) else api.aiohttp.model.SystemInfo(name=output.name, index=output.index) if isinstance(output, my_service.core.greeter.model.SystemInfo) else None)
+        return aiohttp.web.json_response(data=response.model_dump(mode='json', by_alias=True, exclude_none=True))
+
     async def register(self, raw_request: aiohttp.web.Request) -> aiohttp.web.Response:
         request = api.aiohttp.model.UsersRegisterRequest.model_validate_json(await raw_request.read())
         input_name = request.name
@@ -70,5 +95,6 @@ class UsersHandler:
 def add_users_subapp(app: aiohttp.web.Application, handler: UsersHandler) -> None:
     sub = aiohttp.web.Application()
     sub.router.add_post(path='/find_by_name', handler=handler.find_by_name)
+    sub.router.add_post(path='/find_info_by_name', handler=handler.find_info_by_name)
     sub.router.add_post(path='/register', handler=handler.register)
     app.add_subapp(prefix='/users', subapp=sub)
