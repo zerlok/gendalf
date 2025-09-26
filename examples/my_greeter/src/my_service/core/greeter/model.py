@@ -1,3 +1,4 @@
+import typing as t
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -17,3 +18,12 @@ class UserInfo:
 class SystemInfo:
     name: str
     index: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class ComplexStructure:
+    @dataclass(frozen=True, kw_only=True)
+    class Item:
+        users: t.Sequence[UserInfo]
+
+    items: t.Mapping[str, Item]

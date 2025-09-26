@@ -67,7 +67,7 @@ class AiohttpModel(TypeDefinitionBuilder):
         self,
         scope: ScopeASTBuilder,
         domain: TypeInfo,
-        source: Expr,
+        source: AttrASTBuilder,
     ) -> Expr:
         return scope.call(self.__ref).kwarg(
             "payload",

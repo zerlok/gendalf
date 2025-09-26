@@ -3,6 +3,16 @@ import api.aiohttp.model
 import asyncio
 import typing
 
+class StructureClient:
+
+    def __init__(self, session: aiohttp.ClientSession) -> None:
+        self.__session = session
+
+    async def complex(self, request: api.aiohttp.model.StructureComplexRequest) -> api.aiohttp.model.StructureComplexResponse:
+        async with self.__session.post(url='/structure/complex', json=request.model_dump(mode='json', by_alias=True, exclude_none=True)) as raw_response:
+            response = api.aiohttp.model.StructureComplexResponse.model_validate_json(await raw_response.read())
+            return response
+
 class GreeterClient:
 
     def __init__(self, session: aiohttp.ClientSession) -> None:

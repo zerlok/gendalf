@@ -11,10 +11,11 @@ _LOGGER = logging.getLogger("client")
 
 
 def run_client_httpx_sync(host: str, port: int) -> None:
-    from api.fastapi.client import GreeterClient, UsersClient
+    from api.fastapi.client import GreeterClient, StructureClient, UsersClient
     from api.fastapi.model import (
         GreeterGreetRequest,
         GreeterStreamGreetingsRequest,
+        StructureComplexRequest,
         UserInfo,
         UsersFindInfoByNameRequest,
     )
@@ -41,12 +42,17 @@ def run_client_httpx_sync(host: str, port: int) -> None:
         found = users.find_info_by_name(UsersFindInfoByNameRequest(name="python"))
         _LOGGER.info(found.payload)
 
+        struct_client = StructureClient(client)
+        struct = struct_client.complex(StructureComplexRequest())
+        _LOGGER.info(struct.payload)
+
 
 async def run_client_httpx_async(host: str, port: int) -> None:
-    from api.fastapi.client import GreeterAsyncClient, UsersAsyncClient
+    from api.fastapi.client import GreeterAsyncClient, StructureAsyncClient, UsersAsyncClient
     from api.fastapi.model import (
         GreeterGreetRequest,
         GreeterStreamGreetingsRequest,
+        StructureComplexRequest,
         UserInfo,
         UsersFindInfoByNameRequest,
     )
@@ -73,12 +79,17 @@ async def run_client_httpx_async(host: str, port: int) -> None:
         found = await users.find_info_by_name(UsersFindInfoByNameRequest(name="python"))
         _LOGGER.info(found.payload)
 
+        struct_client = StructureAsyncClient(client)
+        struct = await struct_client.complex(StructureComplexRequest())
+        _LOGGER.info(struct.payload)
+
 
 async def run_client_aiohttp(host: str, port: int) -> None:
-    from api.aiohttp.client import GreeterClient, UsersClient
+    from api.aiohttp.client import GreeterClient, StructureClient, UsersClient
     from api.aiohttp.model import (
         GreeterGreetRequest,
         GreeterStreamGreetingsRequest,
+        StructureComplexRequest,
         UserInfo,
         UsersFindInfoByNameRequest,
     )
@@ -104,6 +115,10 @@ async def run_client_aiohttp(host: str, port: int) -> None:
         users = UsersClient(session)
         found = await users.find_info_by_name(UsersFindInfoByNameRequest(name="python"))
         _LOGGER.info(found.payload)
+
+        struct_client = StructureClient(session)
+        struct = await struct_client.complex(StructureComplexRequest())
+        _LOGGER.info(struct.payload)
 
 
 def main() -> None:

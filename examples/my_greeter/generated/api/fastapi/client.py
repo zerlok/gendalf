@@ -7,6 +7,26 @@ import queue
 import threading
 import typing
 
+class StructureClient:
+
+    def __init__(self, impl: httpx.Client) -> None:
+        self.__impl = impl
+
+    def complex(self, request: api.fastapi.model.StructureComplexRequest) -> api.fastapi.model.StructureComplexResponse:
+        raw_response = self.__impl.post(url='/structure/complex', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
+        response = api.fastapi.model.StructureComplexResponse.model_validate_json(raw_response.read())
+        return response
+
+class StructureAsyncClient:
+
+    def __init__(self, impl: httpx.AsyncClient) -> None:
+        self.__impl = impl
+
+    async def complex(self, request: api.fastapi.model.StructureComplexRequest) -> api.fastapi.model.StructureComplexResponse:
+        raw_response = await self.__impl.post(url='/structure/complex', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
+        response = api.fastapi.model.StructureComplexResponse.model_validate_json(raw_response.read())
+        return response
+
 class GreeterClient:
 
     def __init__(self, impl: httpx.Client) -> None:

@@ -2,10 +2,25 @@ import builtins
 import pydantic
 import typing
 
+class StructureComplexRequest(pydantic.BaseModel):
+    """Request DTO for :class:`my_service.core.structure.StructureController` :meth:`complex` entrypoint method."""
+
 class UserInfo(pydantic.BaseModel):
     """DTO for :class:`my_service.core.greeter.model.UserInfo` type."""
     id_: builtins.int
     name: builtins.str
+
+class Item(pydantic.BaseModel):
+    """DTO for :class:`my_service.core.greeter.model.ComplexStructure.Item` type."""
+    users: typing.Sequence[UserInfo]
+
+class ComplexStructure(pydantic.BaseModel):
+    """DTO for :class:`my_service.core.greeter.model.ComplexStructure` type."""
+    items: typing.Mapping[builtins.str, Item]
+
+class StructureComplexResponse(pydantic.BaseModel):
+    """Response DTO for :class:`my_service.core.structure.StructureController` :meth:`complex` entrypoint method."""
+    payload: typing.Sequence[ComplexStructure]
 
 class GreeterGreetRequest(pydantic.BaseModel):
     """Request DTO for :class:`my_service.core.greeter.greeter.Greeter` :meth:`greet` entrypoint method."""

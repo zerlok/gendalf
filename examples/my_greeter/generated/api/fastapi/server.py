@@ -2,7 +2,23 @@ import api.fastapi.model
 import fastapi
 import my_service.core.greeter.greeter
 import my_service.core.greeter.model
+import my_service.core.structure
 import typing
+
+class StructureHandler:
+
+    def __init__(self, impl: my_service.core.structure.StructureController) -> None:
+        self.__impl = impl
+
+    async def complex(self, request: api.fastapi.model.StructureComplexRequest) -> api.fastapi.model.StructureComplexResponse:
+        output = await self.__impl.complex()
+        response = api.fastapi.model.StructureComplexResponse(payload=[api.fastapi.model.ComplexStructure(items={output_item_items_key: api.fastapi.model.Item(users=[api.fastapi.model.UserInfo(id_=output_item_items_value_users_item.id_, name=output_item_items_value_users_item.name) for output_item_items_value_users_item in output_item_items_value.users]) for output_item_items_key, output_item_items_value in output_item.items.items()}) for output_item in output])
+        return response
+
+def create_structure_router(handler: StructureHandler) -> fastapi.APIRouter:
+    router = fastapi.APIRouter(prefix='/structure', tags=['Structure'])
+    router.post(path='/complex', description=None)(handler.complex)
+    return router
 
 class GreeterHandler:
 

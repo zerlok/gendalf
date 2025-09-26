@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gendalf"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Python codegen tool for transport layers in DDD, supporting most popular transport / API frameworks."
 authors = ["zerlok <danil.troshnev@gmail.com>"]
 readme = "README.md"
