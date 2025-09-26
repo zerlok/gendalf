@@ -14,15 +14,15 @@ class UserInfo:
     name: str
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class SystemInfo:
     name: str
     index: int
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class ComplexStructure:
-    @dataclass(frozen=True, kw_only=True)
+    @dataclass(frozen=True)
     class Item:
         users: t.Sequence[UserInfo]
 
