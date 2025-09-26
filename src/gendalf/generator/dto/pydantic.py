@@ -187,26 +187,29 @@ class PydanticDtoMapper(DtoMapper):
             assert_never(info)
 
     def __process_const(self, _: RuntimeType, info: TypeInfo) -> ProcessedDomainTypeInfo:
-        value: object
-
         if info == predef().none_type:
-            value = None
+
+            def mapper(
+                scope: ScopeASTBuilder,
+                source: AttrASTBuilder,  # noqa: ARG001
+                source_type: TypeInfo,  # noqa: ARG001
+                target_type: TypeInfo,  # noqa: ARG001
+            ) -> Expr:
+                return scope.none()
 
         elif info == predef().ellipsis:
-            # NOTE: for python 3.9
-            value = t.cast("object", ...)
+
+            def mapper(
+                scope: ScopeASTBuilder,
+                source: AttrASTBuilder,  # noqa: ARG001
+                source_type: TypeInfo,  # noqa: ARG001
+                target_type: TypeInfo,  # noqa: ARG001
+            ) -> Expr:
+                return scope.ellipsis()
 
         else:
             msg = "constant is not supported for this type"
             raise ValueError(msg, info)
-
-        def mapper(
-            scope: ScopeASTBuilder,
-            source: AttrASTBuilder,  # noqa: ARG001
-            source_type: TypeInfo,  # noqa: ARG001
-            target_type: TypeInfo,  # noqa: ARG001
-        ) -> Expr:
-            return scope.const(value)
 
         def create(_: ScopeASTBuilder) -> DomainTypeMapping:
             return DomainTypeMapping(dto=info, domain=info, mapper=mapper)
