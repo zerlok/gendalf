@@ -1,8 +1,11 @@
+import sys
 import typing as t
 from pathlib import Path
 
 import pytest
+from astlab.reader import parse_module
 from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
+from astlab.writer import render_module
 
 from gendalf.cli import GenKind
 from gendalf.entrypoint.inspection import EntrypointInspector
@@ -19,6 +22,7 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
     ],
 )
 @pytest.mark.parametrize("code_generator_kind", t.get_args(GenKind))
+# @pytest.mark.skipif(sys.version_info < (3, 11), reason="requires Python 3.11 or higher")
 def test_code_generator_returns_expected_result(
     code_generator: CodeGenerator,
     code_generator_context: CodeGeneratorContext,
@@ -133,7 +137,15 @@ def expected_code_generator_result(expected_output_paths: t.Sequence[Path]) -> C
             files=[
                 CodeGeneratorResult.File(
                     path=path,
-                    content=path.read_text(),
+                    # NOTE: normalize expected code generator result for python < 3.11 by parsing content from expected
+                    # python file to AST and then rendering it back to text.
+                    # In older python versions tuples in comprehensions are rendered with round brackets e.g.
+                    # `for (key, value) in dict.items()`, while in newer versions similar AST printer (unparse) skips
+                    # tuple brackets: `for key, value in dict.items()`
+                    # See: https://github.com/python/cpython/commit/52e6596fb5f9371f3a1434dd7816e400862b4df8
+                    content=render_module(parse_module(path.read_text()))
+                    if sys.version_info < (3, 11)
+                    else path.read_text(),
                 )
                 for path in expected_output_paths
             ],
