@@ -193,7 +193,8 @@ class PydanticDtoMapper(DtoMapper):
             value = None
 
         elif info == predef().ellipsis:
-            value = ...
+            # NOTE: for python 3.9
+            value = t.cast("object", ...)
 
         else:
             msg = "constant is not supported for this type"
