@@ -187,6 +187,8 @@ class PydanticDtoMapper(DtoMapper):
             assert_never(info)
 
     def __process_const(self, _: RuntimeType, info: TypeInfo) -> ProcessedDomainTypeInfo:
+        value: object
+
         if info == predef().none_type:
             value = None
 
