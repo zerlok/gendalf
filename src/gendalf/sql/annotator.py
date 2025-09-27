@@ -1,24 +1,17 @@
 from __future__ import annotations
 
 import typing as t
-import warnings
 from dataclasses import dataclass, field, replace
 from functools import singledispatchmethod
 
 from sqlglot import Dialect, MappingSchema, Schema, exp
 
-from gendalf.sql.types import ExpressionType
 from gendalf.traverse import DfsPostOrderTraversal, TraverseScope, TraverseStrategy
 
 
-class SQLTypeInfer:
-    pass
-
-
 class SQLAnnotator:
-    def __init__(self, dialect: Dialect, type_infer: SQLTypeInfer) -> None:
+    def __init__(self, dialect: Dialect) -> None:
         self.__dialect = dialect
-        self.__type_infer = type_infer
 
     def annotate(self, expressions: t.Sequence[exp.Expression]) -> t.Iterable[exp.Expression]:
         schema = self._build_schema(expressions)
@@ -29,8 +22,8 @@ class SQLAnnotator:
 
             annotated_expr = expression.copy()
             for annotated in traversal.traverse(annotated_expr):
-                print(type(annotated.node), annotated.signatures, annotated.node)
-                self._annotate(annotated)
+                print(type(annotated.node), annotated.type_, annotated.node)
+                annotated.node.type = annotated.type_
 
             yield annotated_expr
 
@@ -72,52 +65,52 @@ class SQLAnnotator:
 
         return dtype
 
-    def _annotate(self, annotated: Annotated) -> None:
-        if not annotated.signatures:
-            return
-
-        candidates = list[Signature]()
-        for signature in annotated.signatures:
-            # TODO: also validate type var lower bounds
-            if all(
-                operand.type.is_type(param, check_nullable=True)
-                for param, operand in zip(signature.parameters, annotated.operands)
-                if not isinstance(operand, exp.Placeholder)
-            ):
-                candidates.append(signature)
-
-        if not candidates:
-            warnings.warn("no candidates found", RuntimeWarning)
-            return
-
-        annotated.node.type = (
-            build_type("Union", [candidate.returns for candidate in candidates])
-            if len(candidates) > 1
-            else candidates[0].returns
-        )
-
-        for idx, operand in enumerate(annotated.operands):
-            if isinstance(operand.type, exp.Placeholder):
-                # TODO: move lower bound up
-                operand.type = (
-                    build_type("Union", [candidate.parameters[idx] for candidate in candidates])
-                    if len(candidates) > 1
-                    else candidates[0].parameters[idx]
-                )
-                # operand.type.set_type_var_bounds([candidate.parameters[idx] for candidate in candidates])
+    # def _apply_annotation(self, annotated: Annotated) -> None:
+    #     if not annotated.signatures:
+    #         return
+    #
+    #     candidates = list[Signature]()
+    #     for signature in annotated.signatures:
+    #         # TODO: also validate type var lower bounds
+    #         if all(
+    #             operand.type.is_type(param, check_nullable=True)
+    #             for param, operand in zip(signature.parameters, annotated.operands)
+    #             if not isinstance(operand, exp.Placeholder)
+    #         ):
+    #             candidates.append(signature)
+    #
+    #     if not candidates:
+    #         warnings.warn("no candidates found", RuntimeWarning)
+    #         return
+    #
+    #     annotated.node.type = (
+    #         build_type("Union", [candidate.returns for candidate in candidates])
+    #         if len(candidates) > 1
+    #         else candidates[0].returns
+    #     )
+    #
+    #     for idx, operand in enumerate(annotated.operands):
+    #         if isinstance(operand.type, exp.Placeholder):
+    #             # TODO: move lower bound up
+    #             operand.type = (
+    #                 build_type("Union", [candidate.parameters[idx] for candidate in candidates])
+    #                 if len(candidates) > 1
+    #                 else candidates[0].parameters[idx]
+    #             )
+    #             # operand.type.set_type_var_bounds([candidate.parameters[idx] for candidate in candidates])
 
 
 @dataclass()
 class ExpressionScope:
     table: str = field(default="")
     columns: t.Mapping[str, exp.DataType] = field(default_factory=dict)
-    typer: t.Union[ExpressionType, t.Callable[[], ExpressionType], None] = field(default=None)
+    typer: t.Union[exp.DataType, t.Callable[[], exp.DataType], None] = field(default=None)
 
 
 @dataclass(frozen=True, kw_only=True)
 class Annotated:
     node: exp.Expression
-    type_: ExpressionType
+    type_: exp.DataType
 
 
 class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, ExpressionScope, Annotated]):
@@ -137,7 +130,6 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
                 exp.TableAlias,
                 exp.Create,
                 exp.Alter,
-                exp.Placeholder,
             ),
         )
 
@@ -165,34 +157,23 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         entered: ExpressionScope,
         parent: t.Optional[TraverseScope[exp.Expression, ExpressionScope]],
     ) -> Annotated:
-        sig = (
-            entered.signature()
-            if callable(entered.signature)
-            else entered.signature
-            if entered.signature is not None
-            else None
-        )
-        dtype = entered.dtype() if callable(entered.dtype) else entered.dtype if entered.dtype is not None else None
-
         return Annotated(
             node=node,
-            signatures=([sig] if isinstance(sig, Signature) else sig)
-            if sig is not None
-            else [
-                Signature(
-                    parameters=[],
-                    returns=dtype if isinstance(dtype, exp.DataType) else exp.DataType(this=dtype),
-                )
-            ]
-            if dtype is not None
-            else None,
-            # placeholders=entered.placeholders,
+            type_=entered.typer() if callable(entered.typer) else entered.typer,
         )
 
     @singledispatchmethod
     def _enter_node(self, node: exp.Expression, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
         msg = "unsupported expression"
         raise TypeError(msg, node, scope)
+
+    @_enter_node.register
+    def _enter_schema(
+        self,
+        node: t.Union[exp.ColumnDef, exp.Table, exp.Schema],
+        scope: ExpressionScope,
+    ) -> t.Optional[ExpressionScope]:
+        return None
 
     @_enter_node.register
     def _enter_this(
@@ -208,7 +189,7 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         def get_this_type() -> exp.DataType:
             return node.this.type
 
-        return replace(scope, dtype=get_this_type)
+        return replace(scope, typer=get_this_type)
 
     @_enter_node.register
     def _enter_int(
@@ -216,7 +197,7 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         node: t.Union[exp.Limit, exp.Offset],
         scope: ExpressionScope,
     ) -> t.Optional[ExpressionScope]:
-        return replace(scope, dtype=exp.DataType.Type.INT)
+        return replace(scope, typer=exp.DataType(this=exp.DataType.Type.INT))
 
     @_enter_node.register
     def _enter_array(
@@ -225,16 +206,23 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         scope: ExpressionScope,
     ) -> t.Optional[ExpressionScope]:
         def build_array_type() -> exp.DataType:
-            return build_type(exp.DataType.Type.ARRAY, [node.expressions[0].type])
+            return exp.DataType.build(
+                dtype=exp.DataType.Type.ARRAY,
+                expressions=[exp.DataTypeParam(this=node.expressions[0].type)],
+            )
 
-        return replace(scope, dtype=build_array_type)
+        return replace(scope, typer=build_array_type)
 
     @_enter_node.register
     def _enter_tuple(self, node: exp.Tuple, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
         def build_tuple_type() -> exp.DataType:
-            return build_type("Tuple", [inner.type for inner in node.expressions])
+            return exp.DataType.build(
+                dtype="Tuple",
+                expressions=[inner.type for inner in node.expressions],
+                udt=True,
+            )
 
-        return replace(scope, dtype=build_tuple_type)
+        return replace(scope, typer=build_tuple_type)
 
     @_enter_node.register
     def _enter_literal(self, node: exp.Literal, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -251,7 +239,7 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
             msg = "unknown literal value type"
             raise TypeError(msg, node)
 
-        return replace(scope, dtype=dtype)
+        return replace(scope, typer=exp.DataType(this=dtype))
 
     @_enter_node.register
     def _enter_current_timestamp(
@@ -259,7 +247,7 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         node: exp.CurrentTimestamp,
         scope: ExpressionScope,
     ) -> t.Optional[ExpressionScope]:
-        return replace(scope, dtype=exp.DataType.Type.TIMESTAMPTZ)
+        return replace(scope, typer=exp.DataType(this=exp.DataType.Type.TIMESTAMPTZ))
 
     @_enter_node.register
     def _enter_column(self, node: exp.Column, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -275,41 +263,25 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         else:
             dtype = None
 
-        return replace(scope, dtype=dtype)
-
-    @_enter_node.register
-    def _enter_column_def(self, node: exp.ColumnDef, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
-        # node.type = node.kind
-        return None
-
-    @_enter_node.register
-    def _enter_table(self, node: exp.Table, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
-        # return AnnContext(scope=self._build_scope(node))
-        return None
-
-    @_enter_node.register
-    def _enter_schema(self, node: exp.Schema, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
-        return None
-
-    # @_enter_node.register
-    # def _enter_placeholder(self, node: exp.Placeholder, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
-    #     return replace(
-    #         scope,
-    #         dtype=build_type("TypeVar", [node.copy()]),
-    #         placeholders=[node],
-    #     )
+        return replace(scope, typer=dtype)
 
     @_enter_node.register
     def _enter_returning(self, node: exp.Returning, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
-        dtype = build_struct_type(
-            (
-                col.name,
-                self.__schema.get_column_type(col.table, col.name) if col.table else scope.columns.get(col.name),
-            )
-            for col in node.expressions
+        return replace(
+            scope,
+            typer=exp.DataType(
+                this=exp.DataType.Type.STRUCT,
+                expressions=[
+                    exp.ColumnDef(
+                        this=exp.to_identifier(col.name),
+                        kind=self.__schema.get_column_type(col.table, col.name)
+                        if col.table
+                        else scope.columns.get(col.name),
+                    )
+                    for col in node.expressions
+                ],
+            ),
         )
-
-        return replace(scope, dtype=dtype)
 
     @_enter_node.register
     def _enter_select(self, node: exp.Select, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -323,15 +295,20 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
 
         def build_select_type() -> exp.DataType:
             # TODO: alias => column => from
-            return build_struct_type(
-                (
-                    col.name,
-                    self.__schema.get_column_type(col.table, col.name) if col.table else scope.columns.get(col.name),
-                )
-                for col in node.expressions
+            return exp.DataType(
+                this=exp.DataType.Type.STRUCT,
+                expressions=[
+                    exp.ColumnDef(
+                        this=exp.to_identifier(col.name),
+                        kind=self.__schema.get_column_type(col.table, col.name)
+                        if col.table
+                        else scope.columns.get(col.name),
+                    )
+                    for col in node.expressions
+                ],
             )
 
-        return replace(scope, dtype=build_select_type)
+        return replace(scope, typer=build_select_type)
 
     @_enter_node.register
     def _enter_insert(self, node: exp.Insert, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -346,7 +323,7 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         def build_insert_type() -> t.Optional[exp.DataType]:
             return returning.type if returning is not None else None
 
-        return replace(scope, dtype=build_insert_type)
+        return replace(scope, typer=build_insert_type)
 
     @_enter_node.register
     def _enter_update(self, node: exp.Update, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -361,7 +338,7 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         def build_update_type() -> t.Optional[exp.DataType]:
             return returning.type if returning is not None else None
 
-        return replace(scope, dtype=build_update_type)
+        return replace(scope, typer=build_update_type)
 
     @_enter_node.register
     def _enter_delete(self, node: exp.Delete, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -375,7 +352,22 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         def build_update_type() -> t.Optional[exp.DataType]:
             return returning.type if returning is not None else None
 
-        return replace(scope, dtype=build_update_type)
+        return replace(scope, typer=build_update_type)
+
+    @_enter_node.register
+    def _enter_cast(self, node: exp.Cast, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        return replace(scope, typer=node.to)
+
+    @_enter_node.register
+    def _enter_placeholder(self, node: exp.Placeholder, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
+        # return replace(
+        #     scope,
+        #     dtype=build_type("TypeVar", [node.copy()]),
+        #     placeholders=[node],
+        # )
+        parent = node.parent
+        assert isinstance(parent, exp.Cast)
+        return replace(scope, typer=parent.to)
 
     @_enter_node.register
     def _enter_function(self, node: exp.Func, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -392,36 +384,12 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
             exp.LTE,
             exp.GT,
             exp.GTE,
-        ],
-        scope: ExpressionScope,
-    ) -> t.Optional[ExpressionScope]:
-        type_var = build_type_var()
-        return replace(
-            scope,
-            operands=[node.left.type, node.right.type],
-            signature=Signature(
-                parameters=[type_var, type_var],
-                returns=build_type(exp.DataType.Type.BOOLEAN),
-            ),
-        )
-
-    @_enter_node.register
-    def _enter_binary_str(
-        self,
-        node: t.Union[
             exp.Like,
             exp.ILike,
         ],
         scope: ExpressionScope,
     ) -> t.Optional[ExpressionScope]:
-        return replace(
-            scope,
-            operands=[node.left.type, node.right.type],
-            signature=Signature(
-                parameters=[build_type(exp.DataType.Type.TEXT), build_type(exp.DataType.Type.TEXT)],
-                returns=build_type(exp.DataType.Type.BOOLEAN),
-            ),
-        )
+        return replace(scope, typer=exp.DataType(this=exp.DataType.Type.BOOLEAN))
 
     def _build_scope(
         self,

@@ -9,6 +9,7 @@ from astlab.types import NamedTypeInfo
 from gendalf._typing import override
 from gendalf.generator.abc import SQLCodeGenerator
 from gendalf.generator.model import CodeGeneratorResult, SQLCodeGeneratorContext
+from gendalf.string_case import snake2camel
 
 
 class SQLCastCodeGenerator(SQLCodeGenerator):
@@ -16,11 +17,26 @@ class SQLCastCodeGenerator(SQLCodeGenerator):
     def generate(self, context: SQLCodeGeneratorContext) -> CodeGeneratorResult:
         with self.__init_root(context) as pkg:
             with pkg.module("model") as mod:
-                # TODO: build model defs, use for returns
-                pass
+                for sql in context.sqls:
+                    for table in sql.tables:
+                        with mod.class_def(f"{table.name}Record").dataclas() as record_def:
+                            for col in table.columns:
+                                record_def.field_def(col.name, col.type_)
+
+                    for query in sql.queries:
+                        if query.fetch == "exec":
+                            pass
+
+                        elif query.fetch == "one" or query.fetch == "many":
+                            with mod.class_def(f"{snake2camel(query.name)}Result").dataclass() as result_def:
+                                for field in query.returns.fields:
+                                    result_def.field_def(field.alias, field.type_)
+
+                        else:
+                            t.assert_never(query.fetch)
 
             with pkg.module("querier") as querier:
-                with querier.class_def(name="AsyncQuerier") as class_def:
+                with querier.class_def("AsyncQuerier") as class_def:
                     with class_def.init_self_attrs_def({"pool": self.__asyncpg_pool}):
                         pass
 
@@ -33,6 +49,7 @@ class SQLCastCodeGenerator(SQLCodeGenerator):
                                     FuncArgInfo(name=param.name, kind="keyword-only", annotation=param.type_)
                                     for param in query.params
                                 )
+                                .returns(class_def.ellipsis())
                                 .async_() as scope
                             ):
                                 with (
