@@ -38,7 +38,7 @@ class FastAPIModel(TypeDefinitionBuilder):
         return self.__ref
 
     def build_load_json_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
-        return self.__mapper.mode("json").build_dto_decode_expr(scope, self.__ref, source)
+        return self.__mapper.mode("json").build_dto_decode_expr(scope, self.info, source)
 
     def build_model_to_domain_param_stmts(
         self,
@@ -55,17 +55,17 @@ class FastAPIModel(TypeDefinitionBuilder):
     def build_model_to_domain_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: AttrASTBuilder) -> Expr:
         return self.__mapper.build_dto_to_domain_expr(scope, domain, source)
 
-    def build_domain_to_model_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: Expr) -> Expr:
+    def build_domain_to_model_expr(self, scope: ScopeASTBuilder, domain: TypeInfo, source: AttrASTBuilder) -> Expr:
         return scope.call(self.__ref).kwarg(
             "payload",
             self.__mapper.build_domain_to_dto_expr(scope, domain, source),
         )
 
     def build_dump_json_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
-        return self.__mapper.mode("json").build_dto_encode_expr(scope, self.__ref, source)
+        return self.__mapper.mode("json").build_dto_encode_expr(scope, self.info, source)
 
     def build_dump_serializable_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
-        return self.__mapper.mode("serializable").build_dto_encode_expr(scope, self.__ref, source)
+        return self.__mapper.mode("serializable").build_dto_encode_expr(scope, self.info, source)
 
 
 class FastAPIModelRegistry:

@@ -3,6 +3,16 @@ import api.aiohttp.model
 import asyncio
 import typing
 
+class StructureClient:
+
+    def __init__(self, session: aiohttp.ClientSession) -> None:
+        self.__session = session
+
+    async def complex(self, request: api.aiohttp.model.StructureComplexRequest) -> api.aiohttp.model.StructureComplexResponse:
+        async with self.__session.post(url='/structure/complex', json=request.model_dump(mode='json', by_alias=True, exclude_none=True)) as raw_response:
+            response = api.aiohttp.model.StructureComplexResponse.model_validate_json(await raw_response.read())
+            return response
+
 class GreeterClient:
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
@@ -49,6 +59,11 @@ class UsersClient:
     async def find_by_name(self, request: api.aiohttp.model.UsersFindByNameRequest) -> api.aiohttp.model.UsersFindByNameResponse:
         async with self.__session.post(url='/users/find_by_name', json=request.model_dump(mode='json', by_alias=True, exclude_none=True)) as raw_response:
             response = api.aiohttp.model.UsersFindByNameResponse.model_validate_json(await raw_response.read())
+            return response
+
+    async def find_info_by_name(self, request: api.aiohttp.model.UsersFindInfoByNameRequest) -> api.aiohttp.model.UsersFindInfoByNameResponse:
+        async with self.__session.post(url='/users/find_info_by_name', json=request.model_dump(mode='json', by_alias=True, exclude_none=True)) as raw_response:
+            response = api.aiohttp.model.UsersFindInfoByNameResponse.model_validate_json(await raw_response.read())
             return response
 
     async def register(self, request: api.aiohttp.model.UsersRegisterRequest) -> api.aiohttp.model.UsersRegisterResponse:

@@ -7,6 +7,26 @@ import queue
 import threading
 import typing
 
+class StructureClient:
+
+    def __init__(self, impl: httpx.Client) -> None:
+        self.__impl = impl
+
+    def complex(self, request: api.fastapi.model.StructureComplexRequest) -> api.fastapi.model.StructureComplexResponse:
+        raw_response = self.__impl.post(url='/structure/complex', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
+        response = api.fastapi.model.StructureComplexResponse.model_validate_json(raw_response.read())
+        return response
+
+class StructureAsyncClient:
+
+    def __init__(self, impl: httpx.AsyncClient) -> None:
+        self.__impl = impl
+
+    async def complex(self, request: api.fastapi.model.StructureComplexRequest) -> api.fastapi.model.StructureComplexResponse:
+        raw_response = await self.__impl.post(url='/structure/complex', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
+        response = api.fastapi.model.StructureComplexResponse.model_validate_json(raw_response.read())
+        return response
+
 class GreeterClient:
 
     def __init__(self, impl: httpx.Client) -> None:
@@ -96,6 +116,11 @@ class UsersClient:
         response = api.fastapi.model.UsersFindByNameResponse.model_validate_json(raw_response.read())
         return response
 
+    def find_info_by_name(self, request: api.fastapi.model.UsersFindInfoByNameRequest) -> api.fastapi.model.UsersFindInfoByNameResponse:
+        raw_response = self.__impl.post(url='/users/find_info_by_name', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
+        response = api.fastapi.model.UsersFindInfoByNameResponse.model_validate_json(raw_response.read())
+        return response
+
     def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:
         raw_response = self.__impl.post(url='/users/register', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
         response = api.fastapi.model.UsersRegisterResponse.model_validate_json(raw_response.read())
@@ -109,6 +134,11 @@ class UsersAsyncClient:
     async def find_by_name(self, request: api.fastapi.model.UsersFindByNameRequest) -> api.fastapi.model.UsersFindByNameResponse:
         raw_response = await self.__impl.post(url='/users/find_by_name', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
         response = api.fastapi.model.UsersFindByNameResponse.model_validate_json(raw_response.read())
+        return response
+
+    async def find_info_by_name(self, request: api.fastapi.model.UsersFindInfoByNameRequest) -> api.fastapi.model.UsersFindInfoByNameResponse:
+        raw_response = await self.__impl.post(url='/users/find_info_by_name', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
+        response = api.fastapi.model.UsersFindInfoByNameResponse.model_validate_json(raw_response.read())
         return response
 
     async def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:

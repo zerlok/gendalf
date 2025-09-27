@@ -2,7 +2,23 @@ import api.fastapi.model
 import fastapi
 import my_service.core.greeter.greeter
 import my_service.core.greeter.model
+import my_service.core.structure
 import typing
+
+class StructureHandler:
+
+    def __init__(self, impl: my_service.core.structure.StructureController) -> None:
+        self.__impl = impl
+
+    async def complex(self, request: api.fastapi.model.StructureComplexRequest) -> api.fastapi.model.StructureComplexResponse:
+        output = await self.__impl.complex()
+        response = api.fastapi.model.StructureComplexResponse(payload=[api.fastapi.model.ComplexStructure(items={output_item_items_key: api.fastapi.model.Item(users=[api.fastapi.model.UserInfo(id_=output_item_items_value_users_item.id_, name=output_item_items_value_users_item.name) for output_item_items_value_users_item in output_item_items_value.users]) for output_item_items_key, output_item_items_value in output_item.items.items()}) for output_item in output])
+        return response
+
+def create_structure_router(handler: StructureHandler) -> fastapi.APIRouter:
+    router = fastapi.APIRouter(prefix='/structure', tags=['Structure'])
+    router.post(path='/complex', description=None)(handler.complex)
+    return router
 
 class GreeterHandler:
 
@@ -52,6 +68,12 @@ class UsersHandler:
         response = api.fastapi.model.UsersFindByNameResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name) if output is not None else None)
         return response
 
+    async def find_info_by_name(self, request: api.fastapi.model.UsersFindInfoByNameRequest) -> api.fastapi.model.UsersFindInfoByNameResponse:
+        input_name = request.name
+        output = await self.__impl.find_info_by_name(name=input_name)
+        response = api.fastapi.model.UsersFindInfoByNameResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name) if isinstance(output, my_service.core.greeter.model.UserInfo) else api.fastapi.model.SystemInfo(name=output.name, index=output.index) if isinstance(output, my_service.core.greeter.model.SystemInfo) else None)
+        return response
+
     async def register(self, request: api.fastapi.model.UsersRegisterRequest) -> api.fastapi.model.UsersRegisterResponse:
         input_name = request.name
         output = await self.__impl.register(name=input_name)
@@ -61,5 +83,6 @@ class UsersHandler:
 def create_users_router(handler: UsersHandler) -> fastapi.APIRouter:
     router = fastapi.APIRouter(prefix='/users', tags=['Users'])
     router.post(path='/find_by_name', description=None)(handler.find_by_name)
+    router.post(path='/find_info_by_name', description=None)(handler.find_info_by_name)
     router.post(path='/register', description='Register user with provided name.')(handler.register)
     return router
