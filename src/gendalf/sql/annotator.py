@@ -9,6 +9,7 @@ from sqlglot import Dialect, MappingSchema, Schema, exp
 from gendalf.traverse import DfsPostOrderTraversal, TraverseScope, TraverseStrategy
 
 
+# TODO: infer types for placeholders
 class SQLAnnotator:
     def __init__(self, dialect: Dialect) -> None:
         self.__dialect = dialect
@@ -18,14 +19,11 @@ class SQLAnnotator:
         traversal = DfsPostOrderTraversal(ExpressionTraverseBasedAnnotator(schema))
 
         for expression in expressions:
-            print("\n ---------------- EXPRESSION --------------- \n", type(expression), expression)
-
-            annotated_expr = expression.copy()
-            for annotated in traversal.traverse(annotated_expr):
-                print(type(annotated.node), annotated.type_, annotated.node)
+            result = expression.copy()
+            for annotated in traversal.traverse(result):
                 annotated.node.type = annotated.type_
 
-            yield annotated_expr
+            yield result
 
     def _build_schema(self, expressions: t.Sequence[exp.Expression]) -> Schema:
         schema = MappingSchema()
@@ -52,6 +50,7 @@ class SQLAnnotator:
 
     def _get_column_type(self, node: exp.ColumnDef) -> exp.DataType:
         if "nullable" not in node.kind.args:
+            # TODO: check nullable flag is valid for clickhouse (in CH by default all fields are not nullable)
             nullable = not any(
                 isinstance(c.kind, (exp.PrimaryKeyColumnConstraint, exp.NotNullColumnConstraint))
                 for c in node.constraints
@@ -111,6 +110,7 @@ class ExpressionScope:
 class Annotated:
     node: exp.Expression
     type_: exp.DataType
+    scope: ExpressionScope
 
 
 class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, ExpressionScope, Annotated]):
@@ -160,6 +160,7 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         return Annotated(
             node=node,
             type_=entered.typer() if callable(entered.typer) else entered.typer,
+            scope=entered,
         )
 
     @singledispatchmethod
@@ -170,34 +171,40 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
     @_enter_node.register
     def _enter_schema(
         self,
-        node: t.Union[exp.ColumnDef, exp.Table, exp.Schema],
-        scope: ExpressionScope,
-    ) -> t.Optional[ExpressionScope]:
-        return None
-
-    @_enter_node.register
-    def _enter_this(
-        self,
         node: t.Union[
+            exp.ColumnDef,
+            exp.Table,
+            exp.Schema,
             exp.From,
             exp.Where,
             exp.Group,
             exp.Having,
+            exp.Limit,
+            exp.Offset,
         ],
         scope: ExpressionScope,
     ) -> t.Optional[ExpressionScope]:
-        def get_this_type() -> exp.DataType:
-            return node.this.type
+        return None
 
-        return replace(scope, typer=get_this_type)
+    # @_enter_node.register
+    # def _enter_this(
+    #     self,
+    #     node: t.Union[
+    #     ],
+    #     scope: ExpressionScope,
+    # ) -> t.Optional[ExpressionScope]:
+    #     def get_this_type() -> exp.DataType:
+    #         return node.this.type
+    #
+    #     return replace(scope, typer=get_this_type)
 
-    @_enter_node.register
-    def _enter_int(
-        self,
-        node: t.Union[exp.Limit, exp.Offset],
-        scope: ExpressionScope,
-    ) -> t.Optional[ExpressionScope]:
-        return replace(scope, typer=exp.DataType(this=exp.DataType.Type.INT))
+    # @_enter_node.register
+    # def _enter_int(
+    #     self,
+    #     node: t.Union[exp.Limit, exp.Offset],
+    #     scope: ExpressionScope,
+    # ) -> t.Optional[ExpressionScope]:
+    #     return replace(scope, typer=exp.DataType(this=exp.DataType.Type.INT))
 
     @_enter_node.register
     def _enter_array(
@@ -255,32 +262,18 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         column = self._get_this_name(node)
 
         if table:
-            dtype = self.__schema.get_column_type(table, column)
-
-        elif scope is not None:
-            dtype = scope.columns.get(column)
+            typer = self.__schema.get_column_type(table, column)
 
         else:
-            dtype = None
+            typer = scope.columns.get(column)
 
-        return replace(scope, typer=dtype)
+        return replace(scope, table=table, typer=typer)
 
     @_enter_node.register
     def _enter_returning(self, node: exp.Returning, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
         return replace(
             scope,
-            typer=exp.DataType(
-                this=exp.DataType.Type.STRUCT,
-                expressions=[
-                    exp.ColumnDef(
-                        this=exp.to_identifier(col.name),
-                        kind=self.__schema.get_column_type(col.table, col.name)
-                        if col.table
-                        else scope.columns.get(col.name),
-                    )
-                    for col in node.expressions
-                ],
-            ),
+            typer=self._extract_struct_type(node, scope),
         )
 
     @_enter_node.register
@@ -290,25 +283,16 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         # TODO: HAVING block
 
         from_ = node.args.get("from")
-        if isinstance(from_, exp.From):
-            scope = self._build_scope(from_, scope)
+        if not isinstance(from_, exp.From):
+            return scope
+
+        from_scope = self._build_scope(from_, scope)
 
         def build_select_type() -> exp.DataType:
             # TODO: alias => column => from
-            return exp.DataType(
-                this=exp.DataType.Type.STRUCT,
-                expressions=[
-                    exp.ColumnDef(
-                        this=exp.to_identifier(col.name),
-                        kind=self.__schema.get_column_type(col.table, col.name)
-                        if col.table
-                        else scope.columns.get(col.name),
-                    )
-                    for col in node.expressions
-                ],
-            )
+            return self._extract_struct_type(node, from_scope)
 
-        return replace(scope, typer=build_select_type)
+        return replace(from_scope, typer=build_select_type)
 
     @_enter_node.register
     def _enter_insert(self, node: exp.Insert, scope: ExpressionScope) -> t.Optional[ExpressionScope]:
@@ -317,8 +301,8 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         scope = self._build_scope(node, scope)
 
         returning = node.args.get("returning")
-        if isinstance(returning, exp.Returning):
-            node.type = returning.type
+        if not isinstance(returning, exp.Returning):
+            return scope
 
         def build_insert_type() -> t.Optional[exp.DataType]:
             return returning.type if returning is not None else None
@@ -332,8 +316,8 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         scope = self._build_scope(node, scope)
 
         returning = node.args.get("returning")
-        if isinstance(returning, exp.Returning):
-            node.type = returning.type
+        if not isinstance(returning, exp.Returning):
+            return scope
 
         def build_update_type() -> t.Optional[exp.DataType]:
             return returning.type if returning is not None else None
@@ -346,8 +330,8 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
         scope = self._build_scope(node, scope)
 
         returning = node.args.get("returning")
-        if isinstance(returning, exp.Returning):
-            node.type = returning.type
+        if not isinstance(returning, exp.Returning):
+            return scope
 
         def build_update_type() -> t.Optional[exp.DataType]:
             return returning.type if returning is not None else None
@@ -408,6 +392,20 @@ class ExpressionTraverseBasedAnnotator(TraverseStrategy[exp.Expression, Expressi
             parent,
             table=table,
             columns={col: self.__schema.get_column_type(table, col) for col in column_names},
+        )
+
+    def _extract_struct_type(self, node: exp.Expression, scope: ExpressionScope) -> exp.DataType:
+        return exp.DataType(
+            this=exp.DataType.Type.STRUCT,
+            expressions=[
+                exp.ColumnDef(
+                    this=exp.to_identifier(col.name),
+                    kind=self.__schema.get_column_type(col.table, col.name)
+                    if col.table
+                    else scope.columns.get(col.name),
+                )
+                for col in node.expressions
+            ],
         )
 
     def _get_this_name(self, node: exp.Expression) -> str:

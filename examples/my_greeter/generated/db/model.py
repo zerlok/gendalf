@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from datetime import datetime
+import builtins
+import dataclasses
+import datetime
 
-
-@dataclass(frozen=True)
-class UsersRecord:
-    id: int
-    name: str
-    created_at: datetime
+@dataclasses.dataclass(frozen=True)
+class UsersRow:
+    id: builtins.int
+    name: builtins.str
+    created_at: datetime.datetime

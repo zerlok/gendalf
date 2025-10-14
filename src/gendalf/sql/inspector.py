@@ -13,11 +13,10 @@ from gendalf.sql.annotator import SQLAnnotator
 from gendalf.sql.model import (
     ColumnInfo,
     FetchMode,
+    FieldInfo,
     ParameterInfo,
-    ParametrizedQueryInfo,
+    QueryInfo,
     RecordInfo,
-    SimpleFieldInfo,
-    SimpleQueryInfo,
     SQLInfo,
     TableInfo,
 )
@@ -39,17 +38,15 @@ class SQLInspector:
 
         for path, expressions in parsed:
             tables = list[TableInfo]()
-            queries = list[ParametrizedQueryInfo]()
+            queries = list[QueryInfo]()
 
             for original in expressions:
                 annotated = annotations[original]
 
-                if annotated.type is None:
-                    continue
-
                 table = self.__extract_table(original, annotated)
                 if table is not None:
                     tables.append(table)
+                    continue
 
                 query = self.__extract_query(original, annotated)
                 if query is not None:
@@ -94,38 +91,41 @@ class SQLInspector:
                 for column in schema_expr.expressions
                 if isinstance(column, exp.ColumnDef)
             ],
-            query=SimpleQueryInfo(
-                name=self.__extract_query_name(annotated.comments),
-                statement=original.sql(dialect=self.__dialect, comments=False, pretty=False),
+            query=QueryInfo(
+                name=self.__extract_query_name(annotated),
+                statement=self.__render_statement(original),
+                params=self.__extract_params(annotated),
             ),
         )
 
-    def __extract_query(self, original: exp.Expression, expr: exp.Expression) -> t.Optional[ParametrizedQueryInfo]:
-        name, fetch = self.__extract_query_info(expr.comments)
+    def __extract_query(self, original: exp.Expression, annotated: exp.Expression) -> t.Optional[QueryInfo]:
+        name, fetch = self.__extract_query_info(annotated)
 
-        return ParametrizedQueryInfo(
+        return QueryInfo(
             name=name,
-            # TODO: replace placeholders (e.g. $1, $2, etc.)
-            # TODO: consider param type cast in SQL
-            statement=original.sql(dialect=self.__dialect, comments=False, pretty=False),
-            params=[
-                ParameterInfo(name=node.this, type_=self.__extract_expression_type(node))
-                for node in expr.find_all(exp.Placeholder)
-            ],
-            fetch=fetch if fetch is not None else "exec" if isinstance(expr, exp.Create) else "many",
-            # TODO: add returning fields (select & returning)
+            statement=self.__render_statement(original),
+            params=self.__extract_params(annotated),
+            fetch=fetch,
+            # TODO: add references to defined table columns to reuse table models
             returns=RecordInfo(
-                fields=[
-                    SimpleFieldInfo(
-                        type_=self.__extract_column_type(col),
-                        alias=col.name,
-                    )
-                    for col in expr.type.expressions
-                ]
-            ),
+                fields=tuple(
+                    FieldInfo(type_=self.__extract_column_type(col), alias=col.name)
+                    for col in annotated.type.expressions
+                )
+                if annotated.type is not None and annotated.type.is_type(exp.DataType.Type.STRUCT)
+                else (FieldInfo(type_=self.__extract_expr_type(annotated)),)
+            )
+            if fetch != "exec"
+            else None,
         )
 
-    def __extract_expression_type(self, node: exp.Expression) -> TypeInfo:
+    def __extract_params(self, node: exp.Expression) -> list[ParameterInfo]:
+        return [
+            ParameterInfo(name=node.this, type_=self.__extract_expr_type(node))
+            for node in node.find_all(exp.Placeholder)
+        ]
+
+    def __extract_expr_type(self, node: exp.Expression) -> TypeInfo:
         if node.type is None:
             warnings.warn(f"can't extract {node!r} expression type, continuing with any", RuntimeWarning)
             return predef().any
@@ -154,23 +154,49 @@ class SQLInspector:
     def __has_column_default(self, column: exp.ColumnDef) -> bool:
         return any(isinstance(c.kind, exp.DefaultColumnConstraint) for c in column.constraints)
 
-    def __extract_query_name(self, comments: t.Sequence[str]) -> str:
-        for comment in comments:
+    def __extract_query_name(self, node: exp.Expression) -> str:
+        for comment in node.comments:
             match = self.__query_info_pattern.search(comment)
             if match is not None:
                 return match.group("name")
 
         msg = "query name was not specified"
-        raise ValueError(msg, comments)
+        raise ValueError(msg, node)
 
-    def __extract_query_info(self, comments: t.Sequence[str]) -> tuple[str, t.Optional[FetchMode]]:
-        for comment in comments:
+    def __extract_query_info(self, node: exp.Expression) -> tuple[str, FetchMode]:
+        for comment in node.comments:
             match = self.__query_info_pattern.search(comment)
             if match is not None:
-                return match.group("name"), match.group("fetch")
+                name = match.group("name")
+                fetch = match.group("fetch") or self.__detect_fetch_mode(node)
+                return name, fetch
 
         msg = "query name was not specified"
-        raise ValueError(msg, comments)
+        raise ValueError(msg, node.comments)
+
+    def __detect_fetch_mode(self, node: exp.Expression) -> FetchMode:
+        if node.type is None:
+            return "exec"
+
+        elif node.type.is_type(exp.DataType.Type.STRUCT):
+            if len(node.type.expressions) == 0:
+                return "exec"
+
+            elif len(node.type.expressions) == 1:
+                return "scalar"
+
+            else:
+                return "many"
+
+        elif node.type.is_type(*exp.DataType.STRUCT_TYPES):
+            return "many"
+
+        else:
+            return "scalar"
+
+    def __render_statement(self, node: exp.Expression) -> str:
+        # TODO: replace placeholders (e.g. $1, $2, etc.)
+        return self.__dialect.generate(node, comments=False, pretty=False)
 
     @cached_property
     def __sql2py_type_map(self) -> t.Mapping[exp.DataType.Type, TypeInfo]:
