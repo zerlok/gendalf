@@ -38,8 +38,8 @@ pytest-asyncio = "^1.1.0"
 
 [tool.poetry.group.examples.dependencies]
 httpx = "^0.28.1"
-uvicorn = ">=0.34,<0.38"
-fastapi = ">=0.115.7,<0.119.0"
+uvicorn = ">=0.34,<0.39"
+fastapi = ">=0.115.7,<0.121.0"
 httpx-ws = "^0.7.1"
 aiohttp = "^3.12.14"
 
