@@ -205,7 +205,7 @@ class PydanticDtoMapper(DtoMapper):
         if isinstance(rtt, type) and issubclass(rtt, self.__scalar_types):  # type: ignore[misc]
             return self.__process_scalar(rtt, info)
 
-        if meta is TypeAliasType:  # type: ignore[misc]
+        if meta is _TYPE_ALIAS_META:
             return self.__process_type_alias(rtt, info)
 
         if origin is t.Union:
