@@ -162,26 +162,9 @@ class PydanticDtoMapper(DtoMapper):
     # NOTE: ruff can't work with custom assert_never in this function
     def __process_type(self, info: TypeInfo) -> ProcessedDomainType:  # noqa: RET503
         rtt = self.__loader.load(info)
-        origin: object = t.get_origin(rtt)
-        meta = type(rtt)
 
         if isinstance(info, NamedTypeInfo):
-            if rtt in {None, Ellipsis}:
-                return self.__process_const(rtt, info)
-
-            if isinstance(rtt, type) and issubclass(rtt, self.__scalar_types):  # type: ignore[misc]
-                return self.__process_scalar(rtt, info)
-
-            if meta is t.TypeAliasType:
-                return self.__process_type_alias(rtt, info)
-
-            if origin is t.Union:
-                return self.__process_union(rtt, info)
-
-            if isinstance(origin, type) and issubclass(origin, t.Container):  # type: ignore[misc]
-                return self.__process_container(rtt, origin, info)
-
-            return self.__process_structure(rtt, info)
+            return self.__process_named(rtt, info)
 
         elif isinstance(info, UnionTypeInfo):
             return self.__process_union(rtt, info)
@@ -201,6 +184,27 @@ class PydanticDtoMapper(DtoMapper):
 
         else:
             assert_never(info)
+
+    def __process_named(self, rtt: RuntimeType, info: NamedTypeInfo) -> ProcessedDomainType:
+        origin: object = t.get_origin(rtt)
+        meta = type(rtt)
+
+        if rtt in {None, Ellipsis}:
+            return self.__process_const(rtt, info)
+
+        if isinstance(rtt, type) and issubclass(rtt, self.__scalar_types):  # type: ignore[misc]
+            return self.__process_scalar(rtt, info)
+
+        if meta is t.TypeAliasType:  # type: ignore[misc]
+            return self.__process_type_alias(rtt, info)
+
+        if origin is t.Union:
+            return self.__process_union(rtt, info)
+
+        if isinstance(origin, type) and issubclass(origin, t.Container):  # type: ignore[misc]
+            return self.__process_container(rtt, origin, info)
+
+        return self.__process_structure(rtt, info)
 
     def __process_const(self, _: RuntimeType, info: TypeInfo) -> ProcessedDomainType:
         if info == predef().none:
@@ -255,11 +259,14 @@ class PydanticDtoMapper(DtoMapper):
         )
 
     def __process_type_alias(self, rtt: RuntimeType, info: NamedTypeInfo) -> ProcessedDomainType:
-        of_type = self.__inspector.inspect(rtt.__value__)
+        value: RuntimeType = getattr(rtt, "__value__", None)
+        of_type = self.__inspector.inspect(value)
 
         def create(mod: ScopeASTBuilder) -> DomainTypeMapping:
+            mapping = self.__domain_to_dto[of_type]
+
             with mod.type_alias(info.name) as type_alias:
-                type_alias.assign(self.__domain_to_dto[of_type].dto)
+                type_alias.assign(mapping.dto)
 
             def mapper(
                 scope: ScopeASTBuilder,
@@ -267,10 +274,15 @@ class PydanticDtoMapper(DtoMapper):
                 source_type: TypeInfo,
                 target_type: TypeInfo,
             ) -> Expr:
-                return source
+                return mapping.mapper(
+                    scope,
+                    source,
+                    of_type if source_type == info else mapping.dto,
+                    of_type if target_type == info else mapping.dto,
+                )
 
             return DomainTypeMapping(
-                dto=info,
+                dto=type_alias.info,
                 domain=info,
                 mapper=mapper,
             )
@@ -282,14 +294,12 @@ class PydanticDtoMapper(DtoMapper):
         )
 
     def __process_union(self, rtt: RuntimeType, info: t.Union[NamedTypeInfo, UnionTypeInfo]) -> ProcessedDomainType:
-        is_optional = info.qualname == predef().optional.qualname
-
         values = self.__extract_nested(info)
-        if is_optional:
-            values = (*values, predef().none)
+        if len(values) == 2 and predef().none in values:
+            return self.__process_optional(rtt, info)
 
         def create(_: ScopeASTBuilder) -> DomainTypeMapping:
-            value_mappings = tuple(self.__domain_to_dto[val] for val in reversed(values))
+            value_mappings = [self.__domain_to_dto[val] for val in reversed(values)]
             dto_values = tuple(mapping.dto for mapping in reversed(value_mappings))
 
             def mapper(
@@ -301,25 +311,27 @@ class PydanticDtoMapper(DtoMapper):
                 source_vals = list(reversed(self.__extract_nested(source_type)))
                 target_vals = list(reversed(self.__extract_nested(target_type)))
 
+                if not (len(value_mappings) == len(source_vals) == len(target_vals)):
+                    msg = "source & target value amount mismatch"
+                    raise ValueError(msg, value_mappings, source_vals, target_vals)
+
                 node = value_mappings[0].mapper(scope, source, source_vals[0], target_vals[0])
 
-                for type_param, source_type_param, target_type_param in zip(
+                for mapping, source_val, target_val in zip(
                     value_mappings[1:],
                     source_vals[1:],
                     target_vals[1:],
                 ):
                     node = scope.ternary_expr(
-                        body=type_param.mapper(scope, source, source_type_param, target_type_param),
-                        test=scope.attr("isinstance").call().arg(source).arg(scope.type_ref(source_type_param)),
+                        body=mapping.mapper(scope, source, source_val, target_val),
+                        test=scope.attr("isinstance").call().arg(source).arg(scope.type_ref(source_val)),
                         or_else=node,
                     )
 
                 return node
 
             return DomainTypeMapping(
-                dto=replace(info, type_params=dto_values)
-                if isinstance(info, NamedTypeInfo)
-                else replace(info, values=dto_values),
+                dto=self.__replace_nested(info, dto_values),
                 domain=info,
                 mapper=mapper,
             )
@@ -327,6 +339,40 @@ class PydanticDtoMapper(DtoMapper):
         return ProcessedDomainType(
             domain=info,
             dependencies=values,
+            mapping_factory=create,
+        )
+
+    def __process_optional(self, rtt: RuntimeType, info: t.Union[NamedTypeInfo, UnionTypeInfo]) -> ProcessedDomainType:
+        of_type = self.__extract_optional(info)
+
+        def create(_: ScopeASTBuilder) -> DomainTypeMapping:
+            mapping = self.__domain_to_dto[of_type]
+
+            def mapper(
+                scope: ScopeASTBuilder,
+                source: AttrASTBuilder,
+                source_type: TypeInfo,
+                target_type: TypeInfo,
+            ) -> Expr:
+                return scope.ternary_not_none_expr(
+                    body=mapping.mapper(
+                        scope,
+                        source,
+                        self.__extract_optional(source_type),
+                        self.__extract_optional(target_type),
+                    ),
+                    test=source,
+                )
+
+            return DomainTypeMapping(
+                dto=self.__replace_nested(info, [mapping.dto]),
+                domain=info,
+                mapper=mapper,
+            )
+
+        return ProcessedDomainType(
+            domain=info,
+            dependencies=[of_type],
             mapping_factory=create,
         )
 
@@ -496,9 +542,6 @@ class PydanticDtoMapper(DtoMapper):
 
     def __process_type_var(self, rtt: RuntimeType, info: TypeVarInfo) -> ProcessedDomainType:
         def create(_: ScopeASTBuilder) -> DomainTypeMapping:
-            # lower = self.__domain_to_dto[info.lower] if info.lower is not None else None
-            # constraints = [self.__domain_to_dto[c] for c in info.constraints] if info.constraints is not None else []
-
             def mapper(
                 scope: ScopeASTBuilder,
                 source: AttrASTBuilder,
@@ -506,7 +549,7 @@ class PydanticDtoMapper(DtoMapper):
                 target_type: TypeInfo,
             ) -> Expr:
                 # TODO: provide mapper interface that should be implemented and injected into mapping code
-                return scope.generic_type("__MAPPER__", source_type, target_type).call().arg(source)
+                return scope.call(scope.generic_type("__MAPPER__", source_type, target_type)).arg(source)
 
             return DomainTypeMapping(
                 dto=info,
@@ -572,6 +615,9 @@ class PydanticDtoMapper(DtoMapper):
 
     def __extract_nested(self, info: TypeInfo) -> t.Sequence[TypeInfo]:
         if isinstance(info, NamedTypeInfo):
+            if info.qualname == predef().optional.qualname:
+                return *info.type_params, predef().none
+
             return info.type_params
 
         elif isinstance(info, UnionTypeInfo):
@@ -579,6 +625,32 @@ class PydanticDtoMapper(DtoMapper):
 
         else:
             return ()
+
+    def __extract_optional(self, info: TypeInfo) -> TypeInfo:
+        return next(
+            typ
+            for typ in (
+                info.type_params
+                if isinstance(info, NamedTypeInfo)
+                else info.values
+                if isinstance(info, UnionTypeInfo)
+                else ()
+            )
+            if typ != predef().none
+        )
+
+    def __replace_nested(self, info: TypeInfo, nested: t.Sequence[TypeInfo]) -> TypeInfo:
+        if isinstance(info, NamedTypeInfo):
+            if info.qualname == predef().optional.qualname:
+                return replace(info, type_params=(nested[0],))
+
+            return replace(info, type_params=nested)
+
+        elif isinstance(info, UnionTypeInfo):
+            return replace(info, values=nested)
+
+        else:
+            return info
 
     def __get_nested_mappings(self, domain: t.Union[NamedTypeInfo, UnionTypeInfo]) -> t.Sequence[DomainTypeMapping]:
         return tuple(self.__domain_to_dto[typ] for typ in self.__extract_nested(domain))

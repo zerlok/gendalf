@@ -19,6 +19,17 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
     ("case_dir", "input_rglob"),
     [
         pytest.param(Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
+        pytest.param(
+            Path.cwd() / "examples" / "type_aliases",
+            "src/**/*.py",
+            id="examples type aliases",
+            marks=(
+                pytest.mark.skipif(
+                    "sys.version_info < (3, 12)",
+                    reason="type aliases are supported since Python 3.12",
+                ),
+            ),
+        ),
     ],
 )
 @pytest.mark.parametrize("code_generator_kind", t.get_args(GenKind))
