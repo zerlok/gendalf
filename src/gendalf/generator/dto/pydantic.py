@@ -1,6 +1,7 @@
 import abc
 import decimal
 import inspect
+import sys
 import typing as t
 import uuid
 from dataclasses import dataclass, is_dataclass, replace
@@ -29,14 +30,11 @@ from gendalf._typing import assert_never, override
 from gendalf.generator.dto.abc import DtoMapper, DuplexDtoMapper
 from gendalf.generator.dto.traverse import traverse_post_order
 
-try:
+if sys.version_info >= (3, 12):
     from typing import TypeAliasType
 
-except ImportError:
-    _TYPE_ALIAS_META = type("_TYPE_ALIAS_META", (object,), {})  # type: ignore[misc]
-
 else:
-    _TYPE_ALIAS_META = TypeAliasType
+    TypeAliasType: t.Any = object()  # type: ignore[explicit-any]
 
 
 if t.TYPE_CHECKING:
@@ -205,7 +203,7 @@ class PydanticDtoMapper(DtoMapper):
         if isinstance(rtt, type) and issubclass(rtt, self.__scalar_types):  # type: ignore[misc]
             return self.__process_scalar(rtt, info)
 
-        if meta is _TYPE_ALIAS_META:
+        if meta is TypeAliasType:  # type: ignore[misc]
             return self.__process_type_alias(rtt, info)
 
         if origin is t.Union:
