@@ -27,7 +27,7 @@ class GreeterClient:
         async with self.__session.post(url='/greeter/notify_greeted', json=request.model_dump(mode='json', by_alias=True, exclude_none=True)) as raw_response:
             pass
 
-    async def stream_greetings(self, requests: typing.AsyncIterable[api.aiohttp.model.GreeterStreamGreetingsRequest]) -> typing.AsyncIterable[api.aiohttp.model.GreeterStreamGreetingsResponse]:
+    async def stream_greetings(self, requests: typing.AsyncIterable[api.aiohttp.model.GreeterStreamGreetingsRequest]) -> typing.AsyncIterator[api.aiohttp.model.GreeterStreamGreetingsResponse]:
 
         async def send_requests(ws: aiohttp.ClientWebSocketResponse) -> None:
             try:

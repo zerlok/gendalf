@@ -44,7 +44,7 @@ class CLIContext:
 
     @cached_property
     def type_annotator(self) -> TypeAnnotator:
-        return TypeAnnotator(self.module_loader)
+        return TypeAnnotator(self.type_loader)
 
     @cached_property
     def entrypoint_inspector(self) -> EntrypointInspector:

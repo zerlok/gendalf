@@ -40,7 +40,7 @@ class GreeterClient:
     def notify_greeted(self, request: api.fastapi.model.GreeterNotifyGreetedRequest) -> None:
         self.__impl.post(url='/greeter/notify_greeted', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
 
-    def stream_greetings(self, requests: typing.Iterable[api.fastapi.model.GreeterStreamGreetingsRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.Iterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
+    def stream_greetings(self, requests: typing.Iterable[api.fastapi.model.GreeterStreamGreetingsRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.Iterator[api.fastapi.model.GreeterStreamGreetingsResponse]:
         done = threading.Event()
 
         def send_requests(ws: httpx_ws.WebSocketSession) -> None:
@@ -80,7 +80,7 @@ class GreeterAsyncClient:
     async def notify_greeted(self, request: api.fastapi.model.GreeterNotifyGreetedRequest) -> None:
         await self.__impl.post(url='/greeter/notify_greeted', json=request.model_dump(mode='json', by_alias=True, exclude_none=True))
 
-    async def stream_greetings(self, requests: typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsResponse]:
+    async def stream_greetings(self, requests: typing.AsyncIterable[api.fastapi.model.GreeterStreamGreetingsRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.AsyncIterator[api.fastapi.model.GreeterStreamGreetingsResponse]:
 
         async def send_requests(ws: httpx_ws.AsyncWebSocketSession) -> None:
             try:

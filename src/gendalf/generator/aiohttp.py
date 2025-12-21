@@ -7,10 +7,10 @@ from astlab.abc import Expr, TypeDefinitionBuilder, TypeRef
 from astlab.builder import (
     AttrASTBuilder,
     ClassScopeASTBuilder,
-    ClassTypeRefBuilder,
     ModuleASTBuilder,
     PackageASTBuilder,
     ScopeASTBuilder,
+    TypeRefBuilder,
 )
 from astlab.types import ModuleInfo, NamedTypeInfo, TypeAnnotator, TypeInfo, TypeInspector, TypeLoader
 
@@ -26,7 +26,7 @@ class AiohttpModel(TypeDefinitionBuilder):
     def __init__(
         self,
         mapper: PydanticDtoMapper,
-        ref: ClassTypeRefBuilder,
+        ref: TypeRefBuilder,
     ) -> None:
         self.__mapper = mapper
         self.__ref = ref
@@ -37,7 +37,7 @@ class AiohttpModel(TypeDefinitionBuilder):
         return self.__ref.info
 
     @override
-    def ref(self) -> ClassTypeRefBuilder:
+    def ref(self) -> TypeRefBuilder:
         return self.__ref
 
     def build_load_json_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
@@ -562,7 +562,7 @@ class AiohttpCodeGenerator(CodeGenerator):
 
         with (
             scope.method_def(method.name)
-            .arg("requests", request_model.ref().iterator(is_async=True))
+            .arg("requests", request_model.ref().iterable(is_async=True))
             .returns(response_model.ref().iterator(is_async=True))
             .async_() as method_def
         ):

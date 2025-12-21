@@ -22,7 +22,6 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
     ],
 )
 @pytest.mark.parametrize("code_generator_kind", t.get_args(GenKind))
-# @pytest.mark.skipif(sys.version_info < (3, 11), reason="requires Python 3.11 or higher")
 def test_code_generator_returns_expected_result(
     code_generator: CodeGenerator,
     code_generator_context: CodeGeneratorContext,
@@ -68,8 +67,8 @@ def type_inspector() -> TypeInspector:
 
 
 @pytest.fixture
-def type_annotator(module_loader: ModuleLoader) -> TypeAnnotator:
-    return TypeAnnotator(module_loader)
+def type_annotator(type_loader: TypeLoader) -> TypeAnnotator:
+    return TypeAnnotator(type_loader)
 
 
 @pytest.fixture
