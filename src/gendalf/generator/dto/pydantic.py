@@ -295,7 +295,7 @@ class PydanticDtoMapper(DtoMapper):
 
     def __process_union(self, rtt: RuntimeType, info: t.Union[NamedTypeInfo, UnionTypeInfo]) -> ProcessedDomainType:
         values = self.__extract_nested(info)
-        if len(values) == 2 and predef().none in values:
+        if len(values) == 2 and predef().none in values:  # noqa: PLR2004
             return self.__process_optional(rtt, info)
 
         def create(_: ScopeASTBuilder) -> DomainTypeMapping:
@@ -570,10 +570,10 @@ class PydanticDtoMapper(DtoMapper):
 
             # TODO: improve mapping for enum classes
             def mapper(
-                scope: ScopeASTBuilder,
+                scope: ScopeASTBuilder,  # noqa: ARG001
                 source: AttrASTBuilder,
-                source_type: TypeInfo,
-                target_type: TypeInfo,
+                source_type: TypeInfo,  # noqa: ARG001
+                target_type: TypeInfo,  # noqa: ARG001
             ) -> Expr:
                 return source
 

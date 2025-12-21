@@ -54,7 +54,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 target-version = "py39"
-extend-exclude = ["examples/**/generated"]
+extend-exclude = ["examples/**/generated", "examples/type_aliases/**"]
 force-exclude = true
 line-length = 120
 output-format = "pylint"
