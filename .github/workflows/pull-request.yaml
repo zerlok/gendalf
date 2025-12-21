@@ -15,12 +15,12 @@ on:
       - 'README.md'
 
 jobs:
-  venv:
+  check:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13", "3.14" ]
     env:
       OS: ubuntu
       PYTHON: ${{ matrix.python-version }}
@@ -37,82 +37,23 @@ jobs:
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project false
       - name: Cache venv
-        id: cache
+        id: cache-venv
         uses: actions/cache@v4
         with:
           path: ~/.cache/pypoetry
           key: venv-${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+      - name: Show poetry env info
+        run: poetry env info
       - name: Install project dependencies
         run: poetry install --all-extras
-
-  lint:
-    needs: venv
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install poetry
-        run: pip install poetry
-      - name: Configure poetry
-        run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project false
-      - name: Cache venv
-        id: cache
+      - name: Cache nox
+        id: cache-nox
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pypoetry
-          key: venv-${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
-          fail-on-cache-miss: 'true'
-      - name: Show poetry env info
-        run: poetry env info
-      - name: Run mypy
-        run: poetry run mypy
-      - name: Run ruff check
-        run: poetry run ruff check
-      - name: Run ruff format
-        run: poetry run ruff format --check
-
-  test:
-    needs: lint
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-    env:
-      OS: ubuntu
-      PYTHON: ${{ matrix.python-version }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install poetry
-        run: pip install poetry
-      - name: Configure poetry
-        run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project false
-      - name: Cache venv
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pypoetry
-          key: venv-${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
-          fail-on-cache-miss: 'true'
-      - name: Show poetry env info
-        run: poetry env info
-      - name: Run pytest
-        run: poetry run pytest --cov-report=xml
+          path: .nox
+          key: nox-${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}-${{ hashFiles('noxfile.py') }}
+      - name: Run nox sessions (mypy, ruff, pytest)
+        run: poetry run nox -s mypy ruff pytest -P ${{ matrix.python-version }}
       - name: Upload results to Codecov
         uses: codecov/codecov-action@v4
         with:

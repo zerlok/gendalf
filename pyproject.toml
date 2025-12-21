@@ -35,6 +35,7 @@ pytest = "^8.3.3"
 pytest-cov = ">=6,<8"
 ruff = ">=0.7.4,<1"
 pytest-asyncio = "^1.1.0"
+nox = "^2025.11.12"
 
 [tool.poetry.group.examples.dependencies]
 httpx = "^0.28.1"

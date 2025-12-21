@@ -19,6 +19,12 @@ updates:
         dependency-type: production
         patterns:
           - "^python$"
+          - "^astlab$"
+          - "^click$"
+          - "^httpx.*"
+          - "^uvicorn.*"
+          - "^aiohttp.*"
+          - "^fastapi.*"
       dev-dependencies:
         applies-to: version-updates
         dependency-type: development
@@ -26,3 +32,9 @@ updates:
           - "*"
         exclude-patterns:
           - "^python$"
+          - "^astlab$"
+          - "^click$"
+          - "^httpx.*"
+          - "^uvicorn.*"
+          - "^aiohttp.*"
+          - "^fastapi.*"
