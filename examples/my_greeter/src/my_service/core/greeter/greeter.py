@@ -46,7 +46,7 @@ class UserManager:
 
         return None
 
-    async def find_info_by_name(self, name: str) -> t.Union[UserInfo, SystemInfo, None]:
+    async def find_info_by_name(self, name: str) -> UserInfo | SystemInfo | None:
         if name == "python":
             return SystemInfo(name="python", index=0)
 

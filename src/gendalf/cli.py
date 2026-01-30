@@ -4,6 +4,7 @@ from pathlib import Path
 
 import click
 from astlab.types import ModuleLoader, PackageInfo, TypeAnnotator, TypeInspector, TypeLoader
+from astlab.version import PythonVersion
 
 from gendalf._typing import assert_never
 from gendalf.entrypoint.inspection import EntrypointInspector
@@ -24,9 +25,11 @@ class CLIContext:
         self,
         base: click.Context,
         source: Path,
+        python_version: PythonVersion,
         ignore_module_on_import_error: bool,
     ) -> None:
         self.base = base
+        self.python_version = python_version
         self.source: t.Final[Path] = source
         self.ignore_module_on_import_error: t.Final[bool] = ignore_module_on_import_error
 
@@ -36,7 +39,7 @@ class CLIContext:
 
     @cached_property
     def type_loader(self) -> TypeLoader:
-        return TypeLoader(self.module_loader)
+        return TypeLoader(self.module_loader, self.python_version)
 
     @cached_property
     def type_inspector(self) -> TypeInspector:
@@ -44,7 +47,7 @@ class CLIContext:
 
     @cached_property
     def type_annotator(self) -> TypeAnnotator:
-        return TypeAnnotator(self.type_loader)
+        return TypeAnnotator(self.type_loader, self.python_version)
 
     @cached_property
     def entrypoint_inspector(self) -> EntrypointInspector:
@@ -72,15 +75,23 @@ class CLIContext:
     is_flag=True,
     default=False,
 )
+@click.option(
+    "-p",
+    "--python-version",
+    type=click.Choice([".".join(str(i) for i in v.value) for v in PythonVersion]),
+    default=".".join(str(i) for i in PythonVersion.get().value),
+)
 def cli(
     context: click.Context,
     source: Path,
     ignore_module_on_import_error: bool,
+    python_version: str,
 ) -> None:
     context.obj = CLIContext(
         base=context,
         source=source,
         ignore_module_on_import_error=ignore_module_on_import_error,
+        python_version=PythonVersion.get(tuple(int(c) for c in python_version.split("."))),
     )
 
 
@@ -124,6 +135,7 @@ def cast(
     """Generate code for specified python package."""
 
     gen_context = CodeGeneratorContext(
+        python_version=context.python_version,
         entrypoints=list(context.inspect_source()),
         output=output if output is not None else context.source,
         package=package,

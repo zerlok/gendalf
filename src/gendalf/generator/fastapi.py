@@ -206,11 +206,11 @@ class FastAPICodeGenerator(CodeGenerator):
     @contextmanager
     def __init_root(self, context: CodeGeneratorContext) -> t.Iterator[tuple[PackageASTBuilder, PackageASTBuilder]]:
         if context.package is not None:
-            with package(context.package, inspector=self.__inspector) as pkg:
+            with package(context.package, inspector=self.__inspector, python_version=context.python_version) as pkg:
                 yield pkg, pkg
 
         else:
-            with package("api") as api_pkg:
+            with package("api", inspector=self.__inspector, python_version=context.python_version) as api_pkg:
                 with api_pkg.init():
                     pass
 

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from astlab.reader import parse_module
 from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
+from astlab.version import PythonVersion
 from astlab.writer import render_module
 
 from gendalf.cli import GenKind
@@ -16,10 +17,11 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 
 
 @pytest.mark.parametrize(
-    ("case_dir", "input_rglob"),
+    ("selected_python_version", "case_dir", "input_rglob"),
     [
-        pytest.param(Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
+        pytest.param(None, Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
         pytest.param(
+            (3, 12),
             Path.cwd() / "examples" / "type_aliases",
             "src/**/*.py",
             id="examples type aliases",
@@ -68,8 +70,13 @@ def module_loader(source_dir: Path) -> t.Iterator[ModuleLoader]:
 
 
 @pytest.fixture
-def type_loader(module_loader: ModuleLoader) -> TypeLoader:
-    return TypeLoader(module_loader)
+def python_version(selected_python_version: t.Optional[t.Sequence[int]]) -> PythonVersion:
+    return PythonVersion.get(selected_python_version)
+
+
+@pytest.fixture
+def type_loader(module_loader: ModuleLoader, python_version: PythonVersion) -> TypeLoader:
+    return TypeLoader(module_loader, python_version)
 
 
 @pytest.fixture
@@ -78,8 +85,8 @@ def type_inspector() -> TypeInspector:
 
 
 @pytest.fixture
-def type_annotator(type_loader: TypeLoader) -> TypeAnnotator:
-    return TypeAnnotator(type_loader)
+def type_annotator(type_loader: TypeLoader, python_version: PythonVersion) -> TypeAnnotator:
+    return TypeAnnotator(type_loader, python_version)
 
 
 @pytest.fixture
@@ -108,8 +115,10 @@ def code_generator_context(
     input_paths: t.Sequence[Path],
     output_dir: Path,
     entrypoint_inspector: EntrypointInspector,
+    python_version: PythonVersion,
 ) -> CodeGeneratorContext:
     return CodeGeneratorContext(
+        python_version=python_version,
         entrypoints=list(entrypoint_inspector.inspect_paths(input_paths)),
         output=output_dir,
         package=None,

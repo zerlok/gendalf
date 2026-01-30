@@ -8,7 +8,7 @@ class Init(pydantic.BaseModel):
 
 class Cancel(pydantic.BaseModel):
     """DTO for :class:`type_aliases.notifier.Cancel` type."""
-type Income = typing.Union[Init, Cancel]
+type Income = Init | Cancel
 
 class NotifierSubscribeRequest(pydantic.BaseModel):
     """Request DTO for :class:`type_aliases.notifier.Notifier` :meth:`subscribe` entrypoint method."""
@@ -22,7 +22,7 @@ class Heartbeat(pydantic.BaseModel):
 
 class Ended(pydantic.BaseModel):
     """DTO for :class:`type_aliases.notifier.Ended` type."""
-type Outcome = typing.Union[Started, Heartbeat, Ended]
+type Outcome = Started | Heartbeat | Ended
 
 class NotifierSubscribeResponse(pydantic.BaseModel):
     """Response DTO for :class:`type_aliases.notifier.Notifier` :meth:`subscribe` entrypoint method."""

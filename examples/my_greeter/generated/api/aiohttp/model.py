@@ -62,7 +62,7 @@ class SystemInfo(pydantic.BaseModel):
 
 class UsersFindInfoByNameResponse(pydantic.BaseModel):
     """Response DTO for :class:`my_service.core.greeter.greeter.UserManager` :meth:`find_info_by_name` entrypoint method."""
-    payload: typing.Union[UserInfo, SystemInfo, None]
+    payload: UserInfo | SystemInfo | None
 
 class UsersRegisterRequest(pydantic.BaseModel):
     """Request DTO for :class:`my_service.core.greeter.greeter.UserManager` :meth:`register` entrypoint method."""

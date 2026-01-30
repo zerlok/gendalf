@@ -3,6 +3,8 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass
 
+from astlab.version import PythonVersion
+
 if t.TYPE_CHECKING:
     from pathlib import Path
 
@@ -13,6 +15,7 @@ if t.TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class CodeGeneratorContext:
+    python_version: PythonVersion
     entrypoints: t.Sequence[EntrypointInfo]
     output: Path
     package: t.Optional[PackageInfo]
