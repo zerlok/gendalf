@@ -232,15 +232,18 @@ test = ["coverage", "mypy", "pexpect", "ruff", "wheel"]
 
 [[package]]
 name = "astlab"
-version = "0.5.2"
+version = "0.6.0"
 description = "provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code."
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
 files = [
-    {file = "astlab-0.5.2-py3-none-any.whl", hash = "sha256:1163a630bc22197c9cf1f46d6b538d02c7c03e7877bcc09fb1b29ec7cb0b16da"},
-    {file = "astlab-0.5.2.tar.gz", hash = "sha256:3ea7e5d4570b0c2d429aafd93a80083f1c06730a040ab2fbd05a10844116653a"},
+    {file = "astlab-0.6.0-py3-none-any.whl", hash = "sha256:d9795fe5b10734f29a7020fc69034bf2a6627f28ac5d6ad0beb13b67da1953bd"},
+    {file = "astlab-0.6.0.tar.gz", hash = "sha256:2061efcbe4af5ee23771db4d3ace10fb3aecab592e49181a7d9dbb05f497b22a"},
 ]
+
+[package.extras]
+click = ["click (>=8.0)"]
 
 [[package]]
 name = "async-timeout"
@@ -303,7 +306,23 @@ files = [
     {file = "click-8.1.8-py3-none-any.whl", hash = "sha256:63c132bbbed01578a06712a2d1f497bb62d9c1c0d329b7903a866228027263b2"},
     {file = "click-8.1.8.tar.gz", hash = "sha256:ed53c9d8990d83c2a27deae68e4ee337473f6330c040a31d4225c9574d16096a"},
 ]
-markers = {main = "extra == \"cli\""}
+markers = {main = "python_version == \"3.9\" and extra == \"cli\"", examples = "python_version == \"3.9\""}
+
+[package.dependencies]
+colorama = {version = "*", markers = "platform_system == \"Windows\""}
+
+[[package]]
+name = "click"
+version = "8.3.1"
+description = "Composable command line interface toolkit"
+optional = false
+python-versions = ">=3.10"
+groups = ["main", "examples"]
+files = [
+    {file = "click-8.3.1-py3-none-any.whl", hash = "sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6"},
+    {file = "click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a"},
+]
+markers = {main = "python_version >= \"3.10\" and extra == \"cli\"", examples = "python_version >= \"3.10\""}
 
 [package.dependencies]
 colorama = {version = "*", markers = "platform_system == \"Windows\""}
@@ -1968,4 +1987,4 @@ examples = []
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "89abc973ea227757ae86ecdcc542675abdbabce8d392a1b7be45d6f25acb01a3"
+content-hash = "31111c852a7773f5ed85c6614480beb78f4e389d8fb27946121219682f88b0af"

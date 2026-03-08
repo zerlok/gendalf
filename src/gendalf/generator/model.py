@@ -3,12 +3,11 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass
 
-from astlab.version import PythonVersion
-
 if t.TYPE_CHECKING:
     from pathlib import Path
 
     from astlab.types import PackageInfo
+    from astlab.version import PythonVersion
 
     from gendalf.model import EntrypointInfo
 

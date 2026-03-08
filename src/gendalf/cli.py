@@ -3,6 +3,7 @@ from functools import cached_property
 from pathlib import Path
 
 import click
+from astlab.click import PythonVersionParamType
 from astlab.types import ModuleLoader, PackageInfo, TypeAnnotator, TypeInspector, TypeLoader
 from astlab.version import PythonVersion
 
@@ -78,20 +79,20 @@ class CLIContext:
 @click.option(
     "-p",
     "--python-version",
-    type=click.Choice([".".join(str(i) for i in v.value) for v in PythonVersion]),
-    default=".".join(str(i) for i in PythonVersion.get().value),
+    type=PythonVersionParamType(),
+    default=PythonVersion.get_current(),
 )
 def cli(
     context: click.Context,
     source: Path,
     ignore_module_on_import_error: bool,
-    python_version: str,
+    python_version: PythonVersion,
 ) -> None:
     context.obj = CLIContext(
         base=context,
         source=source,
         ignore_module_on_import_error=ignore_module_on_import_error,
-        python_version=PythonVersion.get(tuple(int(c) for c in python_version.split("."))),
+        python_version=python_version,
     )
 
 
