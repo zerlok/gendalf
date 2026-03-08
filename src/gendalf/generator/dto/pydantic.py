@@ -303,7 +303,7 @@ class PydanticDtoMapper(DtoMapper):
 
     def __process_union(self, rtt: RuntimeType, info: t.Union[NamedTypeInfo, UnionTypeInfo]) -> ProcessedDomainType:
         values = self.__extract_nested(info)
-        if len(values) == 2 and predef().none in values:  # noqa: PLR2004
+        if info.qualname == predef().optional.qualname and len(values) == 2 and predef().none in values:  # noqa: PLR2004
             return self.__process_optional(rtt, info)
 
         def create(_: ScopeASTBuilder) -> DomainTypeMapping:
@@ -373,7 +373,7 @@ class PydanticDtoMapper(DtoMapper):
                 )
 
             return DomainTypeMapping(
-                dto=self.__replace_nested(info, [mapping.dto]),
+                dto=self.__replace_nested(info, (mapping.dto,)),
                 domain=info,
                 mapper=mapper,
             )

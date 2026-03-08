@@ -65,7 +65,7 @@ class UsersHandler:
     async def find_by_name(self, request: api.fastapi.model.UsersFindByNameRequest) -> api.fastapi.model.UsersFindByNameResponse:
         input_name = request.name
         output = await self.__impl.find_by_name(name=input_name)
-        response = api.fastapi.model.UsersFindByNameResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name) if output is not None else None)
+        response = api.fastapi.model.UsersFindByNameResponse(payload=api.fastapi.model.UserInfo(id_=output.id_, name=output.name) if isinstance(output, my_service.core.greeter.model.UserInfo) else None)
         return response
 
     async def find_info_by_name(self, request: api.fastapi.model.UsersFindInfoByNameRequest) -> api.fastapi.model.UsersFindInfoByNameResponse:
