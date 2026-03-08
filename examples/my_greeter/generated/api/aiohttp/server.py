@@ -75,7 +75,7 @@ class UsersHandler:
         request = api.aiohttp.model.UsersFindByNameRequest.model_validate_json(await raw_request.read())
         input_name = request.name
         output = await self.__impl.find_by_name(name=input_name)
-        response = api.aiohttp.model.UsersFindByNameResponse(payload=api.aiohttp.model.UserInfo(id_=output.id_, name=output.name) if output is not None else None)
+        response = api.aiohttp.model.UsersFindByNameResponse(payload=api.aiohttp.model.UserInfo(id_=output.id_, name=output.name) if isinstance(output, my_service.core.greeter.model.UserInfo) else None)
         return aiohttp.web.json_response(data=response.model_dump(mode='json', by_alias=True, exclude_none=True))
 
     async def find_info_by_name(self, raw_request: aiohttp.web.Request) -> aiohttp.web.Response:

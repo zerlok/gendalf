@@ -1,6 +1,5 @@
 import datetime
 import pydantic
-import typing
 
 class Init(pydantic.BaseModel):
     """DTO for :class:`type_aliases.notifier.Init` type."""

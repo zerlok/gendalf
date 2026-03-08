@@ -12,7 +12,7 @@ class NotifierClient:
     def __init__(self, impl: httpx.Client) -> None:
         self.__impl = impl
 
-    def subscribe(self, requests: typing.Iterable[api.fastapi.model.NotifierSubscribeRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.Iterator[api.fastapi.model.NotifierSubscribeResponse]:
+    def subscribe(self, requests: typing.Iterable[api.fastapi.model.NotifierSubscribeRequest], receive_timeout: builtins.float | None=None) -> typing.Iterator[api.fastapi.model.NotifierSubscribeResponse]:
         done = threading.Event()
 
         def send_requests(ws: httpx_ws.WebSocketSession) -> None:
@@ -44,7 +44,7 @@ class NotifierAsyncClient:
     def __init__(self, impl: httpx.AsyncClient) -> None:
         self.__impl = impl
 
-    async def subscribe(self, requests: typing.AsyncIterable[api.fastapi.model.NotifierSubscribeRequest], receive_timeout: typing.Optional[builtins.float]=None) -> typing.AsyncIterator[api.fastapi.model.NotifierSubscribeResponse]:
+    async def subscribe(self, requests: typing.AsyncIterable[api.fastapi.model.NotifierSubscribeRequest], receive_timeout: builtins.float | None=None) -> typing.AsyncIterator[api.fastapi.model.NotifierSubscribeResponse]:
 
         async def send_requests(ws: httpx_ws.AsyncWebSocketSession) -> None:
             try:

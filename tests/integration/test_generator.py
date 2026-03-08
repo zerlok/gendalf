@@ -19,9 +19,11 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 @pytest.mark.parametrize(
     ("selected_python_version", "case_dir", "input_rglob"),
     [
-        pytest.param(None, Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
         pytest.param(
-            (3, 12),
+            PythonVersion.PY39, Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"
+        ),
+        pytest.param(
+            PythonVersion.PY312,
             Path.cwd() / "examples" / "type_aliases",
             "src/**/*.py",
             id="examples type aliases",
@@ -70,8 +72,8 @@ def module_loader(source_dir: Path) -> t.Iterator[ModuleLoader]:
 
 
 @pytest.fixture
-def python_version(selected_python_version: t.Optional[t.Sequence[int]]) -> PythonVersion:
-    return PythonVersion.get(selected_python_version)
+def python_version(selected_python_version: t.Optional[PythonVersion]) -> PythonVersion:
+    return selected_python_version if selected_python_version is not None else PythonVersion.get_current()
 
 
 @pytest.fixture

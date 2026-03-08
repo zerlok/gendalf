@@ -1,12 +1,13 @@
 import aiohttp.web
 import api.aiohttp.model
+import builtins
 import concurrent.futures
 import type_aliases.notifier
 import typing
 
 class NotifierHandler:
 
-    def __init__(self, impl: type_aliases.notifier.Notifier, executor: typing.Optional[concurrent.futures.Executor]=None) -> None:
+    def __init__(self, impl: type_aliases.notifier.Notifier, executor: concurrent.futures.Executor | None=None) -> None:
         self.__impl = impl
         self.__executor = executor
 
