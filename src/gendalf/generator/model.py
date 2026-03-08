@@ -7,12 +7,14 @@ if t.TYPE_CHECKING:
     from pathlib import Path
 
     from astlab.types import PackageInfo
+    from astlab.version import PythonVersion
 
     from gendalf.model import EntrypointInfo
 
 
 @dataclass(frozen=True)
 class CodeGeneratorContext:
+    python_version: PythonVersion
     entrypoints: t.Sequence[EntrypointInfo]
     output: Path
     package: t.Optional[PackageInfo]

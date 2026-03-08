@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gendalf"
-version = "0.3.0"
+version = "0.4.0"
 description = "A Python codegen tool for transport layers in DDD, supporting most popular transport / API frameworks."
 authors = ["zerlok <danil.troshnev@gmail.com>"]
 readme = "README.md"
@@ -27,7 +27,7 @@ gendalf = "gendalf.cli:cli"
 [tool.poetry.dependencies]
 python = "^3.9"
 click = { version = "^8.1.8", optional = true }
-astlab = "^0.4.3"
+astlab = "^0.6.0"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.13.0"
@@ -35,11 +35,12 @@ pytest = "^8.3.3"
 pytest-cov = ">=6,<8"
 ruff = ">=0.7.4,<1"
 pytest-asyncio = "^1.1.0"
+nox = "^2025.11.12"
 
 [tool.poetry.group.examples.dependencies]
 httpx = "^0.28.1"
-uvicorn = ">=0.34,<0.38"
-fastapi = ">=0.115.7,<0.119.0"
+uvicorn = ">=0.34,<0.39"
+fastapi = ">=0.115.7,<0.124.0"
 httpx-ws = "^0.7.1"
 aiohttp = "^3.12.14"
 
@@ -54,7 +55,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 target-version = "py39"
-extend-exclude = ["examples/**/generated"]
+extend-exclude = ["examples/**/generated", "examples/type_aliases/**"]
 force-exclude = true
 line-length = 120
 output-format = "pylint"

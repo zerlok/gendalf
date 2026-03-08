@@ -49,7 +49,7 @@ class UsersFindByNameRequest(pydantic.BaseModel):
 
 class UsersFindByNameResponse(pydantic.BaseModel):
     """Response DTO for :class:`my_service.core.greeter.greeter.UserManager` :meth:`find_by_name` entrypoint method."""
-    payload: typing.Optional[UserInfo]
+    payload: typing.Union[UserInfo, None]
 
 class UsersFindInfoByNameRequest(pydantic.BaseModel):
     """Request DTO for :class:`my_service.core.greeter.greeter.UserManager` :meth:`find_info_by_name` entrypoint method."""

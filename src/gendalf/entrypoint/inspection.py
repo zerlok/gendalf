@@ -113,7 +113,9 @@ class EntrypointInspector:
 
     def __extract_streaming_type(self, obj: object) -> t.Optional[TypeInfo]:
         origin = t.get_origin(obj)
-        if not isinstance(origin, type) or not issubclass(origin, (t.Iterator, t.AsyncIterator)):
+        if not isinstance(origin, type) or not issubclass(
+            origin, (t.Iterator, t.Iterable, t.AsyncIterator, t.AsyncIterable)
+        ):
             return None
 
         args = t.get_args(obj)

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from astlab.reader import parse_module
 from astlab.types import ModuleLoader, TypeAnnotator, TypeInspector, TypeLoader
+from astlab.version import PythonVersion
 from astlab.writer import render_module
 
 from gendalf.cli import GenKind
@@ -16,13 +17,26 @@ from gendalf.generator.model import CodeGeneratorContext, CodeGeneratorResult
 
 
 @pytest.mark.parametrize(
-    ("case_dir", "input_rglob"),
+    ("selected_python_version", "case_dir", "input_rglob"),
     [
-        pytest.param(Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"),
+        pytest.param(
+            PythonVersion.PY39, Path.cwd() / "examples" / "my_greeter", "src/**/*.py", id="examples my_greeter"
+        ),
+        pytest.param(
+            PythonVersion.PY312,
+            Path.cwd() / "examples" / "type_aliases",
+            "src/**/*.py",
+            id="examples type aliases",
+            marks=(
+                pytest.mark.skipif(
+                    "sys.version_info < (3, 12)",
+                    reason="type aliases are supported since Python 3.12",
+                ),
+            ),
+        ),
     ],
 )
 @pytest.mark.parametrize("code_generator_kind", t.get_args(GenKind))
-# @pytest.mark.skipif(sys.version_info < (3, 11), reason="requires Python 3.11 or higher")
 def test_code_generator_returns_expected_result(
     code_generator: CodeGenerator,
     code_generator_context: CodeGeneratorContext,
@@ -58,8 +72,13 @@ def module_loader(source_dir: Path) -> t.Iterator[ModuleLoader]:
 
 
 @pytest.fixture
-def type_loader(module_loader: ModuleLoader) -> TypeLoader:
-    return TypeLoader(module_loader)
+def python_version(selected_python_version: t.Optional[PythonVersion]) -> PythonVersion:
+    return selected_python_version if selected_python_version is not None else PythonVersion.get_current()
+
+
+@pytest.fixture
+def type_loader(module_loader: ModuleLoader, python_version: PythonVersion) -> TypeLoader:
+    return TypeLoader(module_loader, python_version)
 
 
 @pytest.fixture
@@ -68,8 +87,8 @@ def type_inspector() -> TypeInspector:
 
 
 @pytest.fixture
-def type_annotator(module_loader: ModuleLoader) -> TypeAnnotator:
-    return TypeAnnotator(module_loader)
+def type_annotator(type_loader: TypeLoader, python_version: PythonVersion) -> TypeAnnotator:
+    return TypeAnnotator(type_loader, python_version)
 
 
 @pytest.fixture
@@ -98,8 +117,10 @@ def code_generator_context(
     input_paths: t.Sequence[Path],
     output_dir: Path,
     entrypoint_inspector: EntrypointInspector,
+    python_version: PythonVersion,
 ) -> CodeGeneratorContext:
     return CodeGeneratorContext(
+        python_version=python_version,
         entrypoints=list(entrypoint_inspector.inspect_paths(input_paths)),
         output=output_dir,
         package=None,

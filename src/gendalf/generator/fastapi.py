@@ -7,11 +7,11 @@ from astlab.abc import Expr, TypeDefinitionBuilder, TypeRef
 from astlab.builder import (
     AttrASTBuilder,
     ClassScopeASTBuilder,
-    ClassTypeRefBuilder,
     MethodScopeASTBuilder,
     ModuleASTBuilder,
     PackageASTBuilder,
     ScopeASTBuilder,
+    TypeRefBuilder,
 )
 from astlab.types import NamedTypeInfo, TypeAnnotator, TypeInfo, TypeInspector, TypeLoader
 
@@ -24,7 +24,7 @@ from gendalf.string_case import camel2snake, snake2camel
 
 
 class FastAPIModel(TypeDefinitionBuilder):
-    def __init__(self, mapper: PydanticDtoMapper, ref: ClassTypeRefBuilder) -> None:
+    def __init__(self, mapper: PydanticDtoMapper, ref: TypeRefBuilder) -> None:
         self.__mapper = mapper
         self.__ref = ref
 
@@ -34,7 +34,7 @@ class FastAPIModel(TypeDefinitionBuilder):
         return self.__ref.info
 
     @override
-    def ref(self) -> ClassTypeRefBuilder:
+    def ref(self) -> TypeRefBuilder:
         return self.__ref
 
     def build_load_json_expr(self, scope: ScopeASTBuilder, source: Expr) -> Expr:
@@ -206,11 +206,11 @@ class FastAPICodeGenerator(CodeGenerator):
     @contextmanager
     def __init_root(self, context: CodeGeneratorContext) -> t.Iterator[tuple[PackageASTBuilder, PackageASTBuilder]]:
         if context.package is not None:
-            with package(context.package, inspector=self.__inspector) as pkg:
+            with package(context.package, inspector=self.__inspector, python_version=context.python_version) as pkg:
                 yield pkg, pkg
 
         else:
-            with package("api") as api_pkg:
+            with package("api", inspector=self.__inspector, python_version=context.python_version) as api_pkg:
                 with api_pkg.init():
                     pass
 
@@ -542,7 +542,7 @@ class FastAPICodeGenerator(CodeGenerator):
 
         with (
             scope.method_def(method.name)
-            .arg("requests", request_model.ref().iterator(is_async=is_async))
+            .arg("requests", request_model.ref().iterable(is_async=is_async))
             .arg("receive_timeout", scope.type_ref(float).optional(), scope.const(None))
             .returns(response_model.ref().iterator(is_async=is_async))
             .async_(is_async=is_async) as method_def
