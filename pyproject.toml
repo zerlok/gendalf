@@ -35,12 +35,12 @@ pytest = "^8.3.3"
 pytest-cov = ">=6,<8"
 ruff = ">=0.7.4,<1"
 pytest-asyncio = "^1.1.0"
-nox = "^2025.11.12"
+nox = ">=2025.11.12,<2027.0.0"
 
 [tool.poetry.group.examples.dependencies]
 httpx = "^0.28.1"
-uvicorn = ">=0.34,<0.39"
-fastapi = ">=0.115.7,<0.124.0"
+uvicorn = ">=0.34,<0.40"
+fastapi = ">=0.115.7,<0.129.0"
 httpx-ws = "^0.7.1"
 aiohttp = "^3.12.14"
 
